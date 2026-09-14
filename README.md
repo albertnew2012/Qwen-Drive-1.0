@@ -25,10 +25,14 @@
 </p>
 
 <p align="center">
-  <sub>A nuScenes session at 0.75x speed &mdash; first 12 s, full 1238&times;1326 resolution.
-  Camera ring with the predicted trajectory projected into every view, BEV detections,
-  occupancy, online map, and the chain of thought the model writes <i>before</i> the
-  trajectory. The complete 20 s clip is <code>outputs/nuscenes_session_0.75x.mp4</code>.</sub>
+  <sub>A nuScenes session at 0.75x speed &mdash; first 12 s, full 1238&times;1505 resolution.
+  Camera ring with the predicted trajectory projected into every view, the lidar BEV, and
+  the chain of thought the model writes <i>before</i> the trajectory. Bottom row:
+  <b>semantic occupancy</b> on the left, and on the right the <b>online map with every
+  detected object and the predicted path drawn on it</b> &mdash; the three heads in one
+  picture, where they either agree or visibly do not. Full clips:
+  <code>outputs/nuscenes_session_map_1.0x.mp4</code> (real time) and
+  <code>..._0.75x.mp4</code>.</sub>
 </p>
 
 ---

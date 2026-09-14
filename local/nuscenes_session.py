@@ -443,6 +443,83 @@ def bev_panel(ax, frame, pred_boxes, pred_labels, traj, gt_traj):
     lg.set_zorder(13)
 
 
+
+MAP_XBOUND = (-30.0, 30.0, 0.15)          # forward, 400 cells
+MAP_YBOUND = (-15.0, 15.0, 0.15)          # left,    200 cells
+
+
+def _map_xy_to_pixel(x, y):
+    """Ego metres -> pixel (col, row) in the rendered map panel.
+
+    ``visualize._map_rgb`` does ``transpose(1, 0, 2)[::-1, ::-1]`` on a (Y, X)
+    grid, so the displayed image is (400, 200) with **forward up** and **+y
+    (left) on the left**. Inverting that:
+
+        row = 399 - (x + 30) / 0.15          col = 199 - (y + 15) / 0.15
+
+    The map is in the EGO frame, so anything drawn here must be in ego metres.
+    Detections come out of the head in the LIDAR frame and have to be converted
+    first - mixing the two silently shifts every box by the sensor offset.
+    """
+    x0, _, xs = MAP_XBOUND
+    y0, _, ys = MAP_YBOUND
+    nx = int(round((MAP_XBOUND[1] - x0) / xs))
+    ny = int(round((MAP_YBOUND[1] - y0) / ys))
+    col = (ny - 1) - (np.asarray(y) - y0) / ys
+    row = (nx - 1) - (np.asarray(x) - x0) / xs
+    return col, row
+
+
+def map_panel(ax, map_grid, frame, pred_boxes, pred_labels, traj, gt_traj):
+    """The BEV map segmentation with the detections and the trajectory on top.
+
+    The bare segmentation answers "where is the road"; adding the objects and the
+    path answers "where is the road, what is on it, and where are we going" - the
+    three outputs that actually have to agree with each other, in one picture.
+    """
+    import torch
+    from matplotlib import patches
+    from qwen_drive_perception import geometry, visualize as V
+    from qwen_drive_perception.visualize import _class_rgb
+
+    rgb = V._map_rgb(map_grid)
+    ax.imshow(rgb, interpolation="antialiased")
+    h, w = rgb.shape[:2]
+    ax.set_xlim(-0.5, w - 0.5); ax.set_ylim(h - 0.5, -0.5)
+    ax.set_xticks([]); ax.set_yticks([])
+    for sp in ax.spines.values():
+        sp.set_color(V.FRAME_COLOR); sp.set_linewidth(0.8)
+
+    # detections: lidar -> ego, then ego -> pixels
+    if len(pred_boxes):
+        ego = geometry.lidar_to_ego_boxes(
+            torch.as_tensor(np.asarray(pred_boxes, np.float32)),
+            torch.as_tensor(frame.lidar2ego)).numpy()
+        corners = geometry.box_corners(np.asarray(ego, np.float64))
+        for i in range(len(ego)):
+            fp = corners[i][:4, :2]
+            col, row = _map_xy_to_pixel(fp[:, 0], fp[:, 1])
+            if col.max() < 0 or col.min() > w or row.max() < 0 or row.min() > h:
+                continue                                   # fully outside the 60x30 m window
+            c = np.asarray(_class_rgb(pred_labels[i])) / 255.0
+            ax.add_patch(patches.Polygon(np.stack([col, row], 1), closed=True,
+                                         facecolor=c, edgecolor=c, alpha=0.55,
+                                         lw=0.9, zorder=4))
+
+    if gt_traj is not None and len(gt_traj):
+        col, row = _map_xy_to_pixel(gt_traj[:, 0], gt_traj[:, 1])
+        ax.plot(col, row, color="#ffb020", lw=2.4, ls=(0, (4, 3)), zorder=9)
+    if traj is not None and len(traj):
+        col, row = _map_xy_to_pixel(traj[0][:, 0], traj[0][:, 1])
+        ax.plot(col, row, color="#00c8ff", lw=2.8, zorder=10, solid_capstyle="round")
+        ax.scatter(col[::10], row[::10], s=16, color="#00c8ff",
+                   edgecolors="white", linewidths=0.7, zorder=11)
+
+    col0, row0 = _map_xy_to_pixel(0.0, 0.0)
+    ax.add_patch(patches.Circle((float(col0), float(row0)), 5.0, facecolor="#d6336c",
+                                edgecolor="white", lw=0.9, zorder=12))
+
+
 def render_session_frame(frame, result, traj, gt_traj, reasoning=None,
                          stats=None, score_threshold=0.3, dpi=100):
     """The perception_walkthrough.png layout, with the trajectory drawn into the BEV."""
@@ -458,7 +535,10 @@ def render_session_frame(frame, result, traj, gt_traj, reasoning=None,
     rows = V._row_heights(layout)
     width = (2.0 * V.SIDE_WIDTH + V.CENTER_WIDTH) * V.UNIT_INCHES
     ring_h = sum(rows) * V.UNIT_INCHES
-    bottom_h, legend_h = 1.12 * V.UNIT_INCHES, 0.62
+    # Taller bottom row: the map is a 1:2 portrait raster, so its on-screen size
+    # is set by ROW HEIGHT, not by the column width - widening the cell only adds
+    # whitespace beside it.
+    bottom_h, legend_h = 1.62 * V.UNIT_INCHES, 0.62
     height = ring_h + bottom_h + legend_h
 
     fig = plt.figure(figsize=(width, height), dpi=dpi)
@@ -512,39 +592,18 @@ def render_session_frame(frame, result, traj, gt_traj, reasoning=None,
                     fontsize=11.5, color="#1b1f24", family="monospace")
             y -= 0.115
 
-    bottom = outer[1].subgridspec(2, 3, width_ratios=[1.25, 0.52, 1.05],
-                                  height_ratios=[0.09, 1.0], wspace=0.06, hspace=0.0)
+    # Two panels, not three. The separate trajectory chart was redundant once the
+    # path is drawn onto the map itself, and dropping it lets both survivors grow.
+    bottom = outer[1].subgridspec(2, 2, width_ratios=[1.30, 0.78],
+                                  height_ratios=[0.07, 1.0], wspace=0.02, hspace=0.0)
     occ_ax = fig.add_subplot(bottom[1, 0], projection="3d")
     V._panel_occupancy(occ_ax, result["occ"], V._occupancy_window(result["occ"]))
-    V._panel_image(fig.add_subplot(bottom[1, 1]), V._map_rgb(result["map"]))
+    map_panel(fig.add_subplot(bottom[1, 1]), result["map"], frame, pb, pl,
+              traj, gt_traj)
 
-    tj = fig.add_subplot(bottom[1, 2])
-    if gt_traj is not None:
-        tj.plot(gt_traj[:, 1], gt_traj[:, 0], "--", color="#e0920c", lw=2.2, label="GT")
-    if traj is not None:
-        for k, t in enumerate(traj):
-            tj.plot(t[:, 1], t[:, 0], lw=2.4 if k == 0 else 1.0,
-                    color="#00a8db" if k == 0 else "#6fb7d8",
-                    alpha=1.0 if k == 0 else 0.45, label=("prediction" if k == 0 else None))
-    tj.scatter([0], [0], marker="s", s=42, color="#d6336c")
-    # Fixed minimum lateral span. Auto-scaling makes a 1 m drift look like a hard turn,
-    # which is exactly the kind of chart that misleads about trajectory quality.
-    lat = [0.0]
-    if gt_traj is not None:
-        lat += list(gt_traj[:, 1])
-    if traj is not None:
-        lat += list(traj[:, :, 1].ravel())
-    half = max(8.0, float(np.abs(lat).max()) * 1.25)
-    tj.set_xlim(half, -half)                      # inverted: +y (left) on the left
-    tj.set_ylim(-2.0, max(45.0, float(np.max([t[:, 0].max() for t in traj])) * 1.1)
-                if traj is not None else 45.0)
-    tj.set_xlabel("lateral y [m]  (left +)", fontsize=8)
-    tj.set_ylabel("longitudinal x [m]", fontsize=8)
-    tj.tick_params(labelsize=7); tj.grid(alpha=0.3)
-    tj.legend(fontsize=7.5, loc="upper left")
 
-    for col, title in enumerate(("occupancy prediction", "map prediction",
-                                 "trajectory, 5 s @ 10 Hz")):
+    for col, title in enumerate(("occupancy prediction",
+                                 "map prediction  +  objects  +  trajectory")):
         cell = bottom[1, col].get_position(fig)
         fig.text(cell.x0 + cell.width / 2, cell.y1 + 0.004, title, ha="center", va="bottom",
                  fontsize=9.5, color=V.TITLE_COLOR)
