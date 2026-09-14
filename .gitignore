@@ -1,0 +1,14 @@
+# local environment and downloads
+.venv/
+weights/
+data
+# produced artifacts
+outputs/
+
+__pycache__/
+*.pyc
+
+# training caches and ONNX artifacts (5.4 GB, all regenerable)
+outputs/onnx/
+data/train_cache/
+data/train_cache_plan/

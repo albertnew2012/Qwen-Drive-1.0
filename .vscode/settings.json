@@ -1,0 +1,7 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.analysis.extraPaths": ["${workspaceFolder}/src"],
+  "python.terminal.activateEnvironment": true,
+  "files.exclude": { "**/__pycache__": true },
+  "search.exclude": { "weights/**": true, "outputs/**": true, ".venv/**": true }
+}

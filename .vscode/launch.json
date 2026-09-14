@@ -1,0 +1,1463 @@
+{
+  // Qwen-Drive-1.0 - the whole study, one keypress at a time.  F5 -> pick one.
+  //
+  // START HERE:  1a  (how 3D perception actually works, printed from a live forward)
+  //              then read study/06_HOW_3D_PERCEPTION_WORKS.md alongside it.
+  //              1a1 / 1a2 / 1a3 draw the figures that go with it.
+  //
+  // Every config sets "stopOnEntry": true, so the debugger breaks on the first line and
+  // you can step from the top. Press F5 again (Continue) to just run it.
+  // "justMyCode": true keeps stepping inside this repo and out of torch/transformers.
+  //
+  // GPU by default: the scripts default to --device cuda and --dtype bfloat16, so no
+  // device flags appear here. Group 4 needs no GPU.
+  //
+  // GPU configs set CUDA_HOME and prefix PATH with .venv/bin, because torch shells out to
+  // `ninja` to JIT-build the two perception CUDA kernels and the venv bin is not on PATH
+  // when python is launched by absolute path.
+  //
+  // Plain ASCII on purpose - unicode escapes in this file break VS Code's config resolution.
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "1a. Perception INTERNALS - the two lifts, seeding, NMS-free decode",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/study/scripts/09_perception_internals.py",
+        "args": [],
+        "presentation": {
+          "group": "1-understand",
+          "order": 1
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "1a1. FIGURE two_lifts.png - the two lifts, and the fused BEV",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/study/scripts/09_perception_internals.py",
+        "args": [
+          "--figure",
+          "outputs/two_lifts.png"
+        ],
+        "presentation": {
+          "group": "1-understand",
+          "order": 2
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "1a2. Depth vs LIDAR - is the predicted depth actually right?",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/study/scripts/10_depth_vs_lidar.py",
+        "args": [
+          "--figure",
+          "outputs/depth_vs_lidar.png"
+        ],
+        "presentation": {
+          "group": "1-understand",
+          "order": 3
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "1a3. Backprojection - why panel 2 is full of streaks",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/study/scripts/11_backprojection.py",
+        "args": [
+          "--figure",
+          "outputs/backprojection.png"
+        ],
+        "presentation": {
+          "group": "1-understand",
+          "order": 4
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "1b. Perception pipeline - 8 stages, nuScenes 6-cam",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/study/scripts/08_qwen_drive_perception_pipeline.py",
+        "args": [
+          "--frame",
+          "90162f90eceb4ada9e595bc1adb71b5f"
+        ],
+        "presentation": {
+          "group": "1-understand",
+          "order": 5
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "1c. Perception pipeline - nuPlan 8-cam (different rig)",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/study/scripts/08_qwen_drive_perception_pipeline.py",
+        "args": [
+          "--frame",
+          "957810c6e4ff5648"
+        ],
+        "presentation": {
+          "group": "1-understand",
+          "order": 6
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "1d. Planning pipeline - the expert, unrolled",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/study/scripts/07_qwen_drive_pipeline.py",
+        "args": [
+          "--num-samples",
+          "6"
+        ],
+        "presentation": {
+          "group": "1-understand",
+          "order": 7
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "1e. Planning pipeline - UNROLLED + VERIFY bit-exact",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/study/scripts/07_qwen_drive_pipeline.py",
+        "args": [
+          "--num-samples",
+          "6",
+          "--verify"
+        ],
+        "presentation": {
+          "group": "1-understand",
+          "order": 8
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "1f. Planning pipeline - REASONING mode (chain of thought)",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/study/scripts/07_qwen_drive_pipeline.py",
+        "args": [
+          "--num-samples",
+          "6",
+          "--mode",
+          "reasoning_planning"
+        ],
+        "presentation": {
+          "group": "1-understand",
+          "order": 9
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "1g. Anatomy - where all 5.70 B parameters are",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/anatomy.py",
+        "args": [
+          "--root",
+          "weights/Qwen-Drive-1.0-4B",
+          "--per-layer"
+        ],
+        "presentation": {
+          "group": "1-understand",
+          "order": 10
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false"
+        }
+      },
+      {
+        "name": "1h. Token layout - what the prompt is made of",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/token_layout.py",
+        "args": [],
+        "presentation": {
+          "group": "1-understand",
+          "order": 11
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false"
+        }
+      },
+      {
+        "name": "2a. Session RENDER - scene 0, sweep rate (10 Hz, ~148 frames)",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/nuscenes_session.py",
+        "args": [
+          "--scene",
+          "0",
+          "--resume",
+          "--out",
+          "outputs/sweep_s0"
+        ],
+        "presentation": {
+          "group": "2-visualise",
+          "order": 1
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "2b. Session RENDER - scene 1, sweep rate",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/nuscenes_session.py",
+        "args": [
+          "--scene",
+          "1",
+          "--resume",
+          "--out",
+          "outputs/sweep_s1"
+        ],
+        "presentation": {
+          "group": "2-visualise",
+          "order": 2
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "2c. Session ENCODE - 0.75x real speed",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/encode_session.py",
+        "args": [
+          "outputs/sweep_s0",
+          "outputs/nuscenes_session_0.75x.mp4"
+        ],
+        "presentation": {
+          "group": "2-visualise",
+          "order": 3
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false"
+        }
+      },
+      {
+        "name": "2d. Session ENCODE - 1.0x real speed",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/encode_session.py",
+        "args": [
+          "outputs/sweep_s0",
+          "outputs/nuscenes_session_1.0x.mp4",
+          "--speed",
+          "1.0"
+        ],
+        "presentation": {
+          "group": "2-visualise",
+          "order": 4
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false"
+        }
+      },
+      {
+        "name": "2e. Session ENCODE - scene 1, 0.75x",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/encode_session.py",
+        "args": [
+          "outputs/sweep_s1",
+          "outputs/nuscenes_session_scene1_0.75x.mp4"
+        ],
+        "presentation": {
+          "group": "2-visualise",
+          "order": 5
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false"
+        }
+      },
+      {
+        "name": "2f. Perception summary PNG (the render_frame layout)",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/study/scripts/08_qwen_drive_perception_pipeline.py",
+        "args": [
+          "--frame",
+          "90162f90eceb4ada9e595bc1adb71b5f",
+          "--render",
+          "outputs/perception_walkthrough.png"
+        ],
+        "presentation": {
+          "group": "2-visualise",
+          "order": 6
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "2g. Perception stage-by-stage VIDEO",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/study/scripts/08_qwen_drive_perception_pipeline.py",
+        "args": [
+          "--frame",
+          "90162f90eceb4ada9e595bc1adb71b5f",
+          "--dump",
+          "outputs/perception_stages.npz"
+        ],
+        "presentation": {
+          "group": "2-visualise",
+          "order": 7
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "2h. ... then render it",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/make_perception_video.py",
+        "args": [],
+        "presentation": {
+          "group": "2-visualise",
+          "order": 8
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false"
+        }
+      },
+      {
+        "name": "2i. Demo VIDEO - all three heads on the bundled data",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/make_video.py",
+        "args": [
+          "--output",
+          "outputs/qwen_drive_demo.mp4"
+        ],
+        "presentation": {
+          "group": "2-visualise",
+          "order": 9
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false"
+        }
+      },
+      {
+        "name": "3a. Planning - 4 demo scenes, both modes (planner-rl)",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/run_planning_demo.py",
+        "args": [
+          "--modes",
+          "direct,reasoning",
+          "--skip-existing",
+          "--output",
+          "outputs/planning_demo"
+        ],
+        "presentation": {
+          "group": "3-run",
+          "order": 1
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "3b. Planning - the same with planner-SFT",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/run_planning_demo.py",
+        "args": [
+          "--planner",
+          "weights/Qwen-Drive-1.0-4B/planner-sft",
+          "--modes",
+          "direct,reasoning",
+          "--skip-existing",
+          "--output",
+          "outputs/planning_sft"
+        ],
+        "presentation": {
+          "group": "3-run",
+          "order": 2
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "3c. Perception - all 6 demo frames",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/run_perception_demo.py",
+        "args": [
+          "--output",
+          "outputs/perception_demo"
+        ],
+        "presentation": {
+          "group": "3-run",
+          "order": 3
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "3d. VQA probe - driving + general/OCR",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/run_vqa_probe.py",
+        "args": [
+          "--max-new-tokens",
+          "400",
+          "--repetition-penalty",
+          "1.05",
+          "--output",
+          "outputs/vqa_probe.json"
+        ],
+        "presentation": {
+          "group": "3-run",
+          "order": 4
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "3e. How many Euler steps does the sampler need?",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/study/scripts/07_qwen_drive_pipeline.py",
+        "args": [
+          "--num-samples",
+          "1",
+          "--sweep-steps",
+          "1,2,3,5,10,20"
+        ],
+        "presentation": {
+          "group": "3-run",
+          "order": 5
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false",
+        "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "4a. Planning errors, bias, and the bf16 kinematics control",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/analyze_planning.py",
+        "args": [
+          "--dir",
+          "outputs/planning_demo",
+          "--kinematics",
+          "--compare-with",
+          "outputs/planning_sft"
+        ],
+        "presentation": {
+          "group": "4-analyse",
+          "order": 1
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false"
+        }
+      },
+      {
+        "name": "4b. Summarise everything on disk",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/local/summarize.py",
+        "args": [],
+        "presentation": {
+          "group": "4-analyse",
+          "order": 2
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "src",
+          "TOKENIZERS_PARALLELISM": "false"
+        }
+      },
+    {
+        "name": "5a. TRAIN step 1 - cache the VLM feature taps (run this first)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/training/cache_features.py",
+        "args": [],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "5-train"
+        },
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "5b. TRAIN gradient test - PROVES the patch enables training",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/training/test_gradients.py",
+        "args": [
+          "--dtype",
+          "bfloat16"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "5-train"
+        },
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "5z. TRAIN gradient test WITHOUT the patch - shows the shipped failure",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/training/test_gradients.py",
+        "args": [
+          "--skip-patch",
+          "--dtype",
+          "bfloat16"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "5-train"
+        },
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "5c. TRAIN stage 1 - perception head, OVERFIT one frame (the key test)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/training/train_perception.py",
+        "args": [
+          "--steps",
+          "150",
+          "--overfit",
+          "--out",
+          "outputs/train_perception_overfit"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "5-train"
+        },
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "5d. TRAIN stage 1 - perception head on all 6 frames",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/training/train_perception.py",
+        "args": [
+          "--steps",
+          "120"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "5-train"
+        },
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "5e. TRAIN stage 3 - cache planner scene caches",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/training/cache_planner_features.py",
+        "args": [],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "5-train"
+        },
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "5f. TRAIN stage 3 - planning expert, OVERFIT from scratch",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/training/train_planner.py",
+        "args": [
+          "--steps",
+          "250",
+          "--overfit",
+          "--scratch"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "5-train"
+        },
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "5g. TRAIN stage 2 - JOINT perception + VLM (LoRA + checkpointing)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/training/train_joint.py",
+        "args": [
+          "--steps",
+          "10",
+          "--overfit"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "5-train"
+        },
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "6a. ONNX export the perception head (+ verify vs PyTorch)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/export_perception.py",
+        "args": [
+          "--no-fold",
+          "--opset",
+          "20",
+          "--out",
+          "outputs/onnx/perception/perception.onnx"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "6-onnx"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}",
+          "OMP_NUM_THREADS": "8"
+        }
+      },
+      {
+        "name": "6b. ONNX inspect an exported graph",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/inspect_onnx.py",
+        "args": [
+          "--model",
+          "outputs/onnx/perception/perception.onnx"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "6-onnx"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}",
+          "OMP_NUM_THREADS": "8"
+        }
+      },
+    {
+        "name": "6c. ONNX export the PLANNING EXPERT step (+ verify)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/export_planner.py",
+        "args": [
+          "--opset",
+          "20",
+          "--out",
+          "outputs/onnx/planner/planner_step.onnx"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "6-onnx"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "8",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "6d. ONNX export perception SUBMODULES (bisect helper)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/export_submodules.py",
+        "args": [],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "6-onnx"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "8",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+    {
+        "name": "6e. ONNX export the VLM VISION tower (+ verify)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/export_vlm.py",
+        "args": [
+          "--part",
+          "vision"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "6-onnx"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "10",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "6f. ONNX export the VLM TEXT prefill, 4.2 B hybrid (+ verify)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/export_vlm.py",
+        "args": [
+          "--part",
+          "text"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "6-onnx"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "10",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+    {
+        "name": "6g. ONNX export VLM text as PER-LAYER graphs (perception shapes)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/export_vlm_layers.py",
+        "args": [
+          "--task",
+          "perception"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "6-onnx"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "10",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "6h. ONNX export VLM text as PER-LAYER graphs (planning shapes)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/export_vlm_layers.py",
+        "args": [
+          "--task",
+          "planning"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "6-onnx"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "10",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "6i. ONNX export the VLM vision tower for PLANNING",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/export_vlm.py",
+        "args": [
+          "--part",
+          "vision",
+          "--task",
+          "planning"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "6-onnx"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "10",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "6j. ONNX RUN the full perception pipeline",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/run_onnx_pipeline.py",
+        "args": [
+          "--phase",
+          "run"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "6-onnx"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "10",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "6k. ONNX VALIDATE perception vs PyTorch",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/run_onnx_pipeline.py",
+        "args": [
+          "--phase",
+          "compare"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "6-onnx"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "10",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "6l. ONNX RUN the full planning pipeline",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/run_onnx_planner.py",
+        "args": [
+          "--phase",
+          "run"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "6-onnx"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "10",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "6m. ONNX VALIDATE planning trajectory vs PyTorch",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/run_onnx_planner.py",
+        "args": [
+          "--phase",
+          "compare"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "6-onnx"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "10",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+    {
+        "name": "5v. TRAIN verify ALL stages end to end (the one to run)",
+        "type": "node",
+        "request": "launch",
+        "runtimeExecutable": "bash",
+        "program": "${workspaceFolder}/training/verify_all.sh",
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "5-train"
+        },
+        "env": {
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+    {
+        "name": "7a. ONNX PIPELINE perception - run the graphs (saves outputs)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/run_onnx_pipeline.py",
+        "args": [
+          "--phase",
+          "run"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "7-onnx-pipeline"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "8",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "7b. ONNX PIPELINE perception - VALIDATE against PyTorch",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/run_onnx_pipeline.py",
+        "args": [
+          "--phase",
+          "compare"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "7-onnx-pipeline"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "8",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "7c. ONNX PIPELINE planning - run the graphs (saves trajectory)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/run_onnx_planner.py",
+        "args": [
+          "--phase",
+          "run"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "7-onnx-pipeline"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "8",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "7d. ONNX PIPELINE planning - VALIDATE trajectory against PyTorch",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/run_onnx_planner.py",
+        "args": [
+          "--phase",
+          "compare"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "7-onnx-pipeline"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "8",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "7e. ONNX export VLM text layers - PLANNING shape",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/export_vlm_layers.py",
+        "args": [
+          "--task",
+          "planning"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "7-onnx-pipeline"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "8",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "7f. ONNX export VLM vision - PLANNING shape",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/export_vlm.py",
+        "args": [
+          "--part",
+          "vision",
+          "--task",
+          "planning"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "7-onnx-pipeline"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "8",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+    {
+        "name": "6n. ONNX export the VLM DECODE step (token generation, 64 states)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/export_onnx/export_vlm_decode.py",
+        "args": [
+          "--prefill",
+          "64"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "6-onnx"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "OMP_NUM_THREADS": "8",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+    {
+        "name": "4c. Collect all measured results -> expected_results.json",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/study/scripts/12_collect_results.py",
+        "args": [],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "4-analyse"
+        },
+        "env": {
+          "CUDA_VISIBLE_DEVICES": "",
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+    {
+        "name": "5s. TRAIN - run EVERY stage and report PASS/FAIL",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/training/run_all_stages.py",
+        "args": [],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "5-train"
+        },
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+    {
+        "name": "8a. 2-GPU stage 2 - MODULE parallel, vision encoder trainable",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/training/train_joint_2gpu.py",
+        "args": [
+          "--steps",
+          "8",
+          "--overfit"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "8-multigpu"
+        },
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "NCCL_P2P_DISABLE": "1",
+          "NCCL_IB_DISABLE": "1",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "8b. 2-GPU stage 2 - same, LoRA rank 64",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/training/train_joint_2gpu.py",
+        "args": [
+          "--steps",
+          "14",
+          "--overfit",
+          "--lora-rank",
+          "64"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "8-multigpu"
+        },
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "NCCL_P2P_DISABLE": "1",
+          "NCCL_IB_DISABLE": "1",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "8c. 1-GPU stage 3 baseline (DDP is SLOWER here - see 08)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/training/train_planner.py",
+        "args": [
+          "--steps",
+          "200",
+          "--scratch",
+          "--out",
+          "outputs/train_planner_1gpu"
+        ],
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "presentation": {
+          "group": "8-multigpu"
+        },
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
+          "CUDA_HOME": "/usr",
+          "NCCL_P2P_DISABLE": "1",
+          "NCCL_IB_DISABLE": "1",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      }
+    ]
+  }

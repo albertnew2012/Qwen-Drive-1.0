@@ -77,6 +77,56 @@ def ms_deform_attn_bf16_forward(value, spatial_shapes, level_start_index, sampli
     )
 
 
+# ---------------------------------------------------------------- CPU fallback
+# Local addition (not in the upstream release): a pure-torch equivalent of the
+# voxel_pool CUDA kernel, so the perception head can run without a GPU. It
+# mirrors the dispatch that ``attention.multi_scale_deformable_attn_cuda``
+# already does for the other kernel.
+#
+# Semantics reproduced from ``voxel_pool_depth_forward_all_kernel``:
+#   out[batch, camera, x, y, z, c] = sum over the frustum points falling in that
+#   voxel of  img_feats[image, c, h, w] * img_depth[image, d, h, w]
+# accumulated in float32, where ``ranks`` is already the flattened output index.
+
+
+def _voxel_pool_depth_torch(
+    img_feats, img_depth, coords, point_indices, ranks, B, N_sweep, N_cam, X, Y, Z, D, H, W
+):
+    channels = img_feats.shape[2]
+    out = torch.zeros(
+        B * N_cam * X * Y * Z, channels, dtype=torch.float32, device=img_feats.device
+    )
+    if ranks.numel() == 0:
+        return out.view(B, N_cam, X, Y, Z, channels)
+
+    feats = img_feats.reshape(-1, channels, H, W)
+    depth = img_depth.reshape(-1, D, H, W)
+
+    # Decompose the flat point index exactly as the kernel does.
+    flat = point_indices.long()
+    w = flat % W
+    flat = flat // W
+    h = flat % H
+    flat = flat // H
+    d = flat % D
+    image_index = flat // D  # == (batch * N_sweep + sweep) * N_cam + cam
+
+    rank_index = ranks.long()
+
+    # Chunked so the [points, channels] intermediate stays bounded.
+    chunk = max(1, int(2**22 // max(channels, 1)))
+    for start in range(0, rank_index.numel(), chunk):
+        stop = start + chunk
+        image_c = image_index[start:stop]
+        h_c, w_c, d_c = h[start:stop], w[start:stop], d[start:stop]
+        contribution = feats[image_c, :, h_c, w_c].float() * depth[
+            image_c, d_c, h_c, w_c
+        ].float().unsqueeze(-1)
+        out.index_add_(0, rank_index[start:stop], contribution)
+
+    return out.view(B, N_cam, X, Y, Z, channels)
+
+
 class _VoxelPoolDepthCuda(torch.autograd.Function):
     @staticmethod
     def forward(ctx, img_feats, img_depth, coords, point_indices, ranks, B, N_sweep, N_cam, X, Y, Z, D, H, W):
@@ -156,6 +206,12 @@ def voxel_pool_depth(img_feats, img_depth, voxel_coords, mask, B, X, Y, Z):
         + coords[:, 2] * Z
         + coords[:, 3]
     )
+    if not img_feats.is_cuda:
+        out = _voxel_pool_depth_torch(
+            img_feats, img_depth, coords, point_indices, ranks, B, N_sweep, N_cam, X, Y, Z, D, H, W
+        )
+        # The kernel accumulates in float32 and returns the promoted input dtype.
+        return out.to(torch.promote_types(img_feats.dtype, img_depth.dtype))
     return _VoxelPoolDepthCuda.apply(
         img_feats, img_depth, coords, point_indices, ranks, B, N_sweep, N_cam, X, Y, Z, D, H, W
     )

@@ -1,242 +1,266 @@
-
-<img src="assets/logo.png" alt="Qwen-Drive" width="420">
+<p align="center">
+  <img src="assets/logo.png" alt="Qwen-Drive" width="380">
 </p>
 
-<h3 align="center">An Initial Step towards a Vision-Language Foundation Model for Autonomous Driving</h3>
+<h3 align="center">Qwen-Drive-1.0 — studied, trained, and exported to ONNX</h3>
 
 <p align="center">
-  Qwen Team &nbsp;&middot;&nbsp; Huazhong University of Science and Technology
-</p>
-
-<p align="center">
-  📑 <a href="https://arxiv.org/abs/2609.00111">Technical Report</a> &nbsp;|&nbsp;
-  📖 <a href="https://qwen.ai/research">Blog</a> &nbsp;|&nbsp;
-  🤗 <a href="https://huggingface.co/Qwen/Qwen-Drive-1.0-4B">Hugging Face</a> &nbsp;|&nbsp;
-  🤖 <a href="https://modelscope.cn/models/Qwen/Qwen-Drive-1.0-4B">ModelScope</a>
+  A working <b>training pipeline</b> for a release that cannot back-propagate ·
+  the <b>whole model exported to ONNX</b> and validated numerically against PyTorch ·
+  and a walk through how the 3D perception actually works.
 </p>
 
 <p align="center">
-  <img src="assets/intro.png" alt="Qwen-Drive-1.0 performance overview" width="80%">
+  <a href="SETUP.md"><b>SETUP.md</b></a> ·
+  <a href="TRAINING.md"><b>TRAINING.md</b></a> ·
+  <a href="ONNX_EXPORT.md"><b>ONNX_EXPORT.md</b></a> ·
+  <a href="study/00_START_HERE.md"><b>study/</b></a> ·
+  <a href="README_UPSTREAM.md">upstream README</a>
 </p>
 
-Welcome to the GitHub repository of Qwen-Drive-1.0. Here you can find official information about
-Qwen-Drive, and post your questions (Issues).
-
-## Introduction
-
-Qwen-Drive-1.0 retains the architecture of the pretrained Qwen3.5 vision-language model and
-integrates **3D perception**, **visual question answering**, and **motion planning** within a
-unified framework. The natively multimodal Qwen3.5-4B serves as the shared VLM, with two
-external modules attached:
-
-- A **BEV Perception Head** jointly performs 3D object detection, semantic occupancy
-  prediction, and BEV map segmentation. It serves as a probe of the 3D information accessible
-  from the shared representations and provides an explicit, inspectable interface to 3D scene
-  structure.
-- A **Planning Expert** conditions on shared VLM representations to generate future ego
-  trajectories.
-- The original VLM's LLM Decoder remains unchanged, and can handle both General VQA and Driving VQA tasks.
-
-We propose a staged training strategy that integrates perception, language, and planning objectives. By combining driving-specific supervision with general-purpose vision-language data, the model achieves specialized driving competence while retaining broad visual understanding and instruction-following capabilities. This approach is supported by a unified data pipeline that: (1) maps heterogeneous perception annotations into a shared label space; (2) re-annotates driving VQA responses to ensure format and factual consistency; and (3) standardizes trajectories from multiple public driving datasets into a unified waypoint representation.
+---
 
 <p align="center">
-  <img src="assets/overview.png" alt="Qwen-Drive-1.0 unified architecture" width="100%">
+  <img src="assets/nuscenes_session.gif" alt="Qwen-Drive-1.0 on a nuScenes session" width="95%">
 </p>
 
 <p align="center">
-  <img src="assets/perception.png" alt="3D perception results" width="49.4%">
-  <img src="assets/planning.png" alt="Planning results" width="49.4%">
+  <sub>A nuScenes session at 0.75x speed &mdash; first 12 s, full 1238&times;1326 resolution.
+  Camera ring with the predicted trajectory projected into every view, BEV detections,
+  occupancy, online map, and the chain of thought the model writes <i>before</i> the
+  trajectory. The complete 20 s clip is <code>outputs/nuscenes_session_0.75x.mp4</code>.</sub>
 </p>
 
-## Performance
+---
 
-### Planning
+## What is in here
 
-| | SFT | RL |
-| --- | --- | --- |
-| NAVSIM v1.1 navtest, PDMS | 88.2 (89.3 best-of-6) | **90.7** (91.4 best-of-6) |
-| Waymo Open Dataset E2E test, RFS | 7.78 | **7.91** |
-| NVIDIA PhysicalAI open-loop, minADE 3 s | **0.34 m** | 0.38 m |
+This is a clone of [Qwen-Drive-1.0](https://github.com/QwenLM/Qwen-Drive-1.0) plus
+three things the release does not ship:
 
-`SFT` is the imitation-trained Planning Expert. `RL` is the same expert after reward
-optimization on the benchmark objectives. Both share one VLM. 3D detection, occupancy and
-map segmentation results are in [the technical report](#citation), full planning tables in
-[docs/evaluation.md](docs/evaluation.md).
+| | |
+|---|---|
+| **[SETUP.md](SETUP.md)** | reproduce this on another machine. The additions are 1.2 MB; everything else downloads or regenerates. |
+| **[TRAINING.md](TRAINING.md)** | the staged recipe from arXiv:2609.00111, implemented and verified. Stages 1-3 pass; stage 4 (RL) needs a simulator that is not public. |
+| **[ONNX_EXPORT.md](ONNX_EXPORT.md)** | every component exported - 73 graphs, 54 GiB - and both driving pipelines validated end to end against PyTorch. |
+| **[study/](study/00_START_HERE.md)** | 12 documents on how the model works, built by instrumenting live forwards rather than reading code. |
 
-### Driving VQA
+Upstream code in `src/` and `scripts/` is **unmodified** except for one CPU
+fallback in `src/qwen_drive_perception/ops/__init__.py`. Everything added lives in
+`training/`, `export_onnx/`, `study/` and `local/`.
 
-| | LingoQA | Ego3D RMSE ↓ | VLAD | SURDS | WaymoQA safety | WaymoQA all | CoC all | IH |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| InternVL3.5-8B-Instruct | 46.4 | 23.01 | 54.5 | 32.8 | 54.5 | 58.1 | – | 47.5 |
-| LLaVA-OV2-8B | 41.2 | 24.97 | 58.7 | 38.6 | 49.7 | 55.2 | 0.6 | 54.0 |
-| Qwen3.5-4B | 70.4 | 13.17 | 65.4 | 53.0 | 62.5 | 67.1 | 2.6 | 59.0 |
-| Cosmos-Reason1-7B | 45.2 | 26.71 | 33.6 | 8.5 | 39.5 | 43.9 | 3.2 | 30.5 |
-| Cosmos-Reason2-8B | 59.6 | 12.62 | 56.4 | 19.5 | 57.7 | 57.9 | 1.7 | 56.0 |
-| Cosmos3-nano | 65.0 | 22.41 | 57.7 | 39.7 | 56.9 | 58.4 | 4.0 | 2.0 |
-| MiMo-Embodied-7B | 72.0 | 9.85 | 50.3 | 43.1 | 66.5 | 69.6 | – | 61.0 |
-| Alpamayo-1.5-10B | 64.0 | 25.31 | 9.1 | 3.1 | 42.6 | 44.4 | 3.4 | 3.0 |
-| **Qwen-Drive-1.0-SFT** | **77.8** | **7.78** | **66.5** | **66.1** | **70.7** | **74.5** | **41.3** | **71.0** |
+---
 
->LingoQA is scored with Qwen-Plus as the judge instead of the official LingoJudge, which we found to score leniently and inconsistently across scenarios. Under the official LingoJudge protocol Qwen-Drive-1.0-SFT obtains a LingoScore of 79.4. `–` marks an invalid or unparsable response.
-
-On driving-scene understanding, Qwen-Drive-1.0 improves markedly over its Qwen3.5-4B base
-while keeping general vision-language ability intact. Driving QA and spatial understanding,
-with overall causal-reasoning accuracy on PAI-AV Chain-of-Causation (CoC) and an in-house
-Chinese urban driving-decision set (IH):
-
-### General VQA and Reasoning:
-
-| | MMBench | MMStar | MMMU | MMMU-Pro std | MMMU-Pro vis | CharXiv | OCRBench | RealWorldQA | SimpleVQA | CountQA |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| InternVL3.5-8B-Instruct | 80.0 | 64.1 | 62.0 | 46.4 | 42.3 | 41.7 | 83.2 | 66.9 | 40.8 | 20.9 |
-| LLaVA-OV2-8B | 82.7 | 64.9 | 54.7 | 36.3 | 26.0 | 40.1 | 79.3 | 71.8 | 36.7 | 22.6 |
-| Qwen3.5-4B | **87.1** | 75.3 | **73.4** | **64.9** | **61.3** | **65.1** | 86.9 | 76.3 | **47.8** | 35.9 |
-| Cosmos-Reason1-7B | 80.0 | 63.5 | 54.2 | 38.4 | 35.8 | 39.7 | 85.2 | 67.5 | 45.0 | 18.5 |
-| Cosmos-Reason2-8B | 82.8 | 65.3 | 59.1 | 36.1 | 43.5 | 42.5 | **87.0** | 67.5 | 45.3 | 22.3 |
-| Cosmos3-nano | 79.6 | 66.7 | 60.9 | 46.4 | 40.8 | 42.1 | 85.2 | 69.7 | 45.0 | 23.6 |
-| MiMo-Embodied-7B | – | 22.4 | – | 27.4 | 28.1 | 57.5 | 78.8 | 28.5 | – | 22.6 |
-| Alpamayo-1.5-10B | 7.5 | 26.1 | 27.4 | 15.6 | 13.5 | 1.5 | 3.2 | 46.9 | – | 4.7 |
-| **Qwen-Drive-1.0-SFT** | 85.5 | **75.9** | 72.7 | 62.7 | 59.7 | 64.4 | 86.4 | **79.0** | 46.1 | 31.7 |
-
-### Spatial Understanding and Grounding:
-
-| | EmbSpatial | ERQA | RefSpatial | Omni3D | ODinW13 |
-| --- | --- | --- | --- | --- | --- |
-| InternVL3.5-8B-Instruct | 74.2 | 42.0 | – | – | – |
-| LLaVA-OV2-8B | 78.4 | 42.3 | – | – | – |
-| Qwen3.5-4B | 76.0 | 46.3 | **54.5** | **47.4** | 40.8 |
-| Cosmos-Reason1-7B | 68.8 | 38.5 | 0.4 | – | 4.8 |
-| Cosmos-Reason2-8B | 77.6 | 43.3 | 51.8 | 32.9 | 40.2 |
-| Cosmos3-nano | 77.9 | 41.3 | – | 32.3 | 35.9 |
-| MiMo-Embodied-7B | 45.1 | 39.8 | 2.2 | – | – |
-| Alpamayo-1.5-10B | 20.6 | 27.5 | – | – | – |
-| **Qwen-Drive-1.0-SFT** | **78.9** | **48.5** | 50.8 | 45.8 | **45.9** |
-
-Comparisons are reproduced under one protocol with near-deterministic decoding; see
-[the technical report](#citation) for the full setup.
-
-## Models
-
-The model can be downloaded from Hugging Face or ModelScope. Everything ships in one directory. The VLM sits at its root, shared by every task, and each task head in a subfolder beside it.
+## 0. End-to-end data flow — all three modes on one page
 
 ```
-Qwen-Drive-1.0-4B/          9.1 GB  the VLM, which on its own serves the VQA mode
-├── planner-sft/            2.1 GB  Planning Expert, imitation-trained
-├── planner-rl/             2.1 GB  Planning Expert after reward optimization
-└── perception/             0.5 GB  BEV perception head
+╔═══════════════════════════════════════════════════════════════════════════════════════╗
+║                          THE SHARED VLM — Qwen3.5-4B                                  ║
+║                    4.5393 B params · one copy · never modified                        ║
+╚═══════════════════════════════════════════════════════════════════════════════════════╝
+
+  PLANNING INPUT                             │        PERCEPTION INPUT
+  3 views × 4 timesteps = 12 images          │        the whole camera ring, 1 timestep
+  <FRONT> <FRONT LEFT> <FRONT RIGHT>         │        6 cams (nuScenes) or 8 cams (nuPlan)
+  history 26×24 grid → 156 tok  (×9)         │        each 896×512 → 32×56 grid → 448 tok
+  current 50×44 grid → 550 tok  (×3)         │
+        └─ 3054 image + 331 text = 3385 tok  │        └─ 3584 image + 70 text = 3654 tok (8 cam)
+                                             │           2688 image + 56 text = 2744 tok (6 cam)
+                    │                        │                     │
+                    ▼                        │                     ▼
+        ┌───────────────────────────────────────────────────────────────────┐
+        │  VISION TOWER  model.visual   333.514 M  (7.35 %)                  │
+        │  24 blocks · width 1024 · 16 heads · patch 16 · temporal patch 2   │
+        │  merge 2×2 → out_hidden 2560 ·  deepstack_visual_indexes = []      │
+        │  pixel_values row = 3 ch × 2 temporal × 16 × 16 = 1536             │
+        └──────────┬──────────────────────────────────┬─────────────────────┘
+                   │ post-merge tokens                │ PRE-MERGE patches, after
+                   │                                  │ merger.norm  ── PERCEPTION TAP 1
+                   ▼                                  │  [N_cam, 32, 56, 1024]
+        ┌───────────────────────────────────────────────────────────────────┐
+        │  LANGUAGE MODEL  4205.751 M  (92.65 %)   32 layers · width 2560   │
+        │  vocab 248 320 · embed 635.70 M · tie_word_embeddings = True      │
+        │  mRoPE interleaved, sections [11, 11, 10], θ = 1e7, partial 0.25  │
+        │                                                                   │
+        │  HYBRID STACK — layer_types alternate 3:1                         │
+        │   ├ 24 × linear_attention  (Gated DeltaNet)     112.9 M each      │
+        │   │     in_proj_qkv 8192 = q 16×128 ⊕ k 16×128 ⊕ v 32×128        │
+        │   │     in_proj_z 4096 gate · conv1d (8192,1,4) · A_log/dt_bias   │
+        │   │     ► NO KV CACHE — a recurrent state, not keys and values    │
+        │   │                                                               │
+        │   └  8 × full_attention  at layers [3,7,11,15,19,23,27,31]        │
+        │         q_proj 8192 = query 16×256 ⊕ OUTPUT GATE 16×256           │
+        │         k_proj/v_proj 1024 = 4 kv heads × 256   (GQA 4:1)         │
+        │         q_norm/k_norm per-head RMSNorm over head_dim 256          │
+        │         ► these 8 are the ONLY layers that leave a KV cache       │
+        └───────┬───────────────────────────────┬───────────────────────────┘
+                │                               │ final norm applied explicitly,
+                │                               │ image-token rows only
+                │                               │  ── PERCEPTION TAP 2
+                │                               │  [N_cam, 16, 28, 2560]
+                │                               ▼
+                │              ┌──────────────────────────────────┐
+                │              │  BEV PERCEPTION HEAD             │
+                │              │  125.064 M · fp32 · §3           │
+                │              └──────────────────────────────────┘
+                │
+        ┌───────┴────────────────────────────────────────────────┐
+        │                                                        │
+        ▼ VQA mode                                               ▼ PLANNING modes
+   the LLM decoder, unchanged.                        8 KV caches, one per full-
+   greedy-equivalent decoding                         attention layer, each
+   (temp 0.01, top_k 1)                               [1, 3385, 4 heads, 256]
+   → text                                                        │
+                                                                 ▼
+                              ┌────────────────────────────────────────────────────┐
+                              │  PLANNING EXPERT  1.0398 B  ·  §2                  │
+                              │  32 layers × 31.990 M · width 1024 · mlp 3584      │
+                              │  10 Euler steps of flow matching                   │
+                              └────────────────────────────────────────────────────┘
+                                                                 │
+                                          OUTPUT ►  [num_samples, 50, 3]
+                                          (x, y, heading) · 5 s @ 10 Hz · ego frame
 ```
 
-A head is attached when the VLM is loaded:
+The two **taps** are the whole trick. Geometry is read from the ViT *before* the
+2×2 merge and needs only a 0.853 M neck; meaning is read from the LLM's last
+layer and needs a 33.663 M adaptor — a **39× asymmetry** that says the pre-merge
+patches are already close to what a view transform wants.
+Details: [study/01](study/01_MODEL_STRUCTURE.md), [study/07](study/07_PUSH_AND_PULL.md).
 
-```python
-model = QwenDriveForPlanning.from_pretrained(
-    "Qwen-Drive-1.0-4B", planner="Qwen-Drive-1.0-4B/planner-rl", dtype=torch.bfloat16
-)
-```
+---
 
-`planner-rl` was reward-optimized only on reasoning-conditioned rollouts, so run it in the
-reasoning planning mode. `planner-sft` covers both direct and reasoning planning.
+## 1. Training
 
-## Install
-
-A GPU with 24 GB+ of memory is recommended.
+**The release cannot back-propagate.** Two custom CUDA kernels ship forward-only:
+`_VoxelPoolDepthCuda` is a `torch.autograd.Function` with no `backward`, and
+`ms_deform_attn_bf16_forward` is not wrapped in one at all. That is *why* there is
+no training code. `training/differentiable.py` routes both to their differentiable
+pure-PyTorch twins, and then everything else follows.
 
 ```bash
-git clone <repository-url> qwen-drive && cd qwen-drive
+export PYTHONPATH=src:. PATH="$PWD/.venv/bin:$PATH"
 
-# Any Python virtual environment works; conda is shown here
-conda create -n qwen-drive python=3.10
-conda activate qwen-drive
-
-pip install -e. --no-build-isolation        # or: pip install -r requirements.txt
+.venv/bin/python training/cache_features.py          # cache the frozen VLM's taps
+.venv/bin/python training/run_all_stages.py          # every stage, PASS/FAIL
 ```
 
-## Quick start
+```
+PASS  gradient test WITHOUT the patch (failing IS the pass)      7s
+PASS  gradient test WITH the patch                              10s
+PASS  stage 1 - perception head, overfit one frame             527s
+PASS  stage 3 - planning expert, overfit from scratch           68s
+PASS  stage 2 - joint perception + VLM (LoRA)                  152s
+5/5 stages passed
+```
 
-`data/demo/` bundles four WOD-E2E planning scenes with their frames in one Parquet file and
-six perception frames, so the commands below need nothing but the weights. The scenes cover
-a night intersection whose light turns green, a left turn, a right turn, and a slow-down past
-a parked truck.
+| stage | what trains | result |
+|---|---|---|
+| 1 perception head | BEV head, VLM frozen | loss **15.5 → 3.4** |
+| 2 joint | head + VLM (LoRA) | **15.4 → 9.5**, gradient reaches the VLM |
+| 3 planning expert | flow matching, VLM frozen | **0.0079 → 0.0001** |
+| 4 RL | — | **not implemented**: needs closed-loop PDMS, not public |
 
-`scripts/demo.py --plot` writes a summary figure: the camera ring of the scene on the left,
-one row per view and one column per timestep, the predicted trajectories against the ground
-truth on the right, and the generated reasoning underneath.
+Losses are quoted from the paper, not inferred:
+
+```
+L_perc = L_det + L_occ + L_map
+L_det  = sum_{l=1..6} ( 2·L_focal + 0.75·L_l1 )     L_occ = 100·L_focal + L_geo + L_sem + L_lov
+L_map  = 100·L_focal + L_lov                        L_plan = L_fm + 2e-4·L_d1 + 2e-5·L_d2
+```
+
+On two GPUs the right parallelism **differs per stage** — DDP gives stage 1 a clean
+2×, but makes stage 3 **1.7× slower** (2.1 GiB all-reduced against 0.21 s of
+compute, with no NVLink). Stage 2 instead splits by *module*, which makes the
+vision encoder trainable at lower peak memory. Full detail and every command:
+**[TRAINING.md](TRAINING.md)**.
+
+---
+
+## 2. ONNX export
+
+The whole model is exported and validated: **73 graphs, 54 GiB**.
 
 ```bash
-export PYTHONPATH=src
-python scripts/demo.py --model Qwen-Drive-1.0-4B --planner Qwen-Drive-1.0-4B/planner-rl \
-    --scenes data/demo/planning_scenes.jsonl --image-archive data/demo/frames.parquet \
-    --plot demo.png
+.venv/bin/python export_onnx/run_onnx_pipeline.py --phase run      # perception
+.venv/bin/python export_onnx/run_onnx_pipeline.py --phase compare
+.venv/bin/python export_onnx/run_onnx_planner.py  --phase run      # planning
+.venv/bin/python export_onnx/run_onnx_planner.py  --phase compare
 ```
 
-```python
-import torch
-from qwen_drive import InferenceMode, QwenDriveForPlanning
-from qwen_drive.benchmarks import read_scene_file
-from qwen_drive.images import ImageArchive
-
-model = QwenDriveForPlanning.from_pretrained(
-    "Qwen-Drive-1.0-4B",
-    planner="Qwen-Drive-1.0-4B/planner-rl",
-    dtype=torch.bfloat16,
-    attn_implementation="flash_attention_2",
-).to("cuda").eval()
-
-scene = next(
-    read_scene_file(
-        "data/demo/planning_scenes.jsonl",
-        image_archive=ImageArchive.open("data/demo/frames.parquet"),
-    )
-).scene
-
-result = model.run(InferenceMode.REASONING_PLANNING, scene=scene, num_samples=6)
-print(result.reasoning)
-print(result.trajectories.shape)   # (6, 50, 3) -> (x, y, heading), 5 s at 10 Hz
+```
+PERCEPTION   PIPELINE PASS  (worst 1.17e-03, tolerance 5e-03)
+PLANNING     ADE 0.00002 m   FDE 0.00004 m   PASS
 ```
 
-**[docs/cookbook.md](docs/cookbook.md)** has recipes for VQA, best-of-N planning, benchmark
-runs, multi-GPU evaluation, perception inference and visualization.
+| graph | nodes | vs PyTorch |
+|---|---|---|
+| VLM vision tower | 3,747 | 7.1e-05 |
+| VLM text prefill, 33 per-layer graphs | 344,127 | 1.4e-06 |
+| VLM decode step | 10,233 | 2.0e-06 |
+| BEV perception head | 12,436 | 5.3e-04 |
+| Planning expert step | 9,315 | 4.2e-07 |
 
-## Documentation
+**There is no single .onnx file, and that is a runtime limit.** The monolithic
+prefill *does* export (341,977 nodes) but onnxruntime cannot build a session from
+it. Session creation is **quadratic** in node count — measured 0.27 → 0.57 → 1.49
+s per 1k nodes as the graph doubles — so 32 layers extrapolates to ~65 minutes,
+which is exactly what it did. Split into 33 graphs it loads in ~2 minutes.
 
-| Doc | Contents |
-| --- | --- |
-| [docs/cookbook.md](docs/cookbook.md) | recipes for every inference mode and benchmark |
-| [docs/model.md](docs/model.md) | architecture, configuration fields, decoding parameters |
-| [docs/data.md](docs/data.md) | scene-file format, obtaining the frames, frame packing |
-| [docs/evaluation.md](docs/evaluation.md) | benchmark protocols, metric definitions, result tables |
-| [docs/perception.md](docs/perception.md) | perception setup, demo data layout, coordinate conventions |
+The bug worth knowing: `index_add` with duplicate indices exported *silently
+wrong*. Voxel pooling is nothing but duplicate indices, and the graph passed
+`onnx.checker`, ran, and returned **relative error 0.96**. Switching to
+`scatter_add` took it to 5.3e-04. Full detail: **[ONNX_EXPORT.md](ONNX_EXPORT.md)**.
 
-## Repository layout
+---
+
+## 3. How the 3D perception works
+
+The model lifts to BEV **twice, by opposite methods**, and fuses them:
+
+* **push** (LSS/UVTR) — each image patch guesses a depth *distribution* over 118
+  bins and scatters its feature along the ray. The streaks in the BEV are that
+  uncertainty made visible; it is a weighted backprojection, the same operation
+  as unfiltered backprojection in CT.
+* **pull** (BEVFormer) — each of 200×200 BEV cells projects itself into all
+  cameras by calibration alone and samples what is there.
+
+Push knows *what* and guesses *where*; pull knows *where* and must ask *what*. So
+push's output becomes pull's starting value — one line, `bev_queries =
+bev_embedding.weight + uvtr_bev_feat`.
+
+<p align="center"><img src="assets/two_lifts.png" width="92%"></p>
+
+Start at [study/00_START_HERE.md](study/00_START_HERE.md), or jump to
+[07_PUSH_AND_PULL.md](study/07_PUSH_AND_PULL.md) if "push" and "pull" are words
+rather than pictures.
+
+---
+
+## 4. Layout
 
 ```
-qwen-drive/
-├── src/qwen_drive/             # VQA + planning: model, scenes, benchmarks, metrics
-├── src/qwen_drive_perception/  # perception mode (+ CUDA kernels under ops/)
-├── scripts/                    # demo, prediction and scoring, visualization
-├── data/demo/                  # bundled demo scenes and perception frames
-├── data/benchmarks/            # the four benchmark scene files (relative frame paths)
-├── assets/                     # figures
-└── docs/
+TRAINING.md          the recipe and every command to train
+ONNX_EXPORT.md       the full export and how to validate it
+README_UPSTREAM.md   the original Qwen-Drive README
+
+training/            differentiable.py (the enabler), losses, 3 stages, multi-GPU
+export_onnx/         exporters, geometry freezing, end-to-end runners
+study/               12 documents + scripts that print live numbers
+local/               demo runners, video tools, analysis
+.vscode/launch.json  61 one-keypress configs for everything above
 ```
 
-## Citation
+Reproduce any number: `.venv/bin/python study/scripts/12_collect_results.py`
+regenerates `outputs/expected_results.json`, and
+[study/10_EXPECTED_RESULTS.md](study/10_EXPECTED_RESULTS.md) says what counts as
+a regression.
 
-If you find our work helpful, feel free to cite us.
+---
 
-```bibtex
-@misc{zhou2026qwendrive10initialstepvisionlanguage,
-      title={Qwen-Drive-1.0: An Initial Step towards a Vision-Language Foundation Model for Autonomous Driving}, 
-      author={Xin Zhou and Zongchuang Zhao and Zhibo Yang and Mingsheng Li and Humen Zhong and Shuai Bai and Du Chu and Ruizhe Chen and Zhaohai Li and Jun Tang and Qiuyue Wang and Mingkun Yang and Jiazhao Zhang and Dayiheng Liu and Dingkang Liang and Xiang Bai},
-      year={2026},
-      eprint={2609.00111},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2609.00111}, 
-}
-```
+## Attribution
 
-## License
-
-Qwen-Drive-1.0 is released under the Apache 2.0 license. Please find more details in the
-[LICENSE](LICENSE) file.
+Model, weights and `src/` are by the Qwen Team and Huazhong University of Science
+and Technology — see [README_UPSTREAM.md](README_UPSTREAM.md) and
+[arXiv:2609.00111](https://arxiv.org/abs/2609.00111). Licence unchanged
+([LICENSE](LICENSE)).
