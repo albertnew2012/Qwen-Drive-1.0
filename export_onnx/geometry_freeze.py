@@ -165,6 +165,11 @@ def make_frozen_voxel_pool(idx: FrozenVoxelIndices):
         so the traced zeros alone aborted the export. One buffer per camera is
         [640 k, 256] = 655 MiB - comfortably under - and the arithmetic is
         unchanged, since ``ranks`` already encodes the camera in the row index.
+
+        Folding all six cameras into one shared buffer was tried: it saves 2.2 GiB
+        but only 1.6% of runtime, and six times as many duplicate indices land on
+        each row, which ORT's threaded ScatterElements sums in a nondeterministic
+        order - the verification drifted from 1.1e-04 to 1.2e-03 between runs.
         """
         channels = img_feats.shape[2]
         D, H, W = img_depth.shape[1], img_depth.shape[2], img_depth.shape[3]

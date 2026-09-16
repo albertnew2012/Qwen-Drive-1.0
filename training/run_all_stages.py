@@ -7,7 +7,7 @@ purpose: two of them peak near 20 GiB and the machine OOM-kills concurrent runs.
 """
 from __future__ import annotations
 
-import argparse, re, subprocess, sys, time
+import argparse, os, re, subprocess, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,9 +38,10 @@ def main() -> int:
                     help="skip stage 1 and 2 (the two multi-minute ones)")
     args = ap.parse_args()
 
-    env = {"PYTHONPATH": f"{ROOT/'src'}:{ROOT}", "CUDA_HOME": "/usr",
+    cuda_home = os.environ.get("CUDA_HOME", "/usr")
+    env = {"PYTHONPATH": f"{ROOT/'src'}:{ROOT}", "CUDA_HOME": cuda_home,
            "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
-           "PATH": f"{ROOT/'.venv'/'bin'}:/usr/bin:/bin",
+           "PATH": f"{ROOT/'.venv'/'bin'}:{cuda_home}/bin:/usr/bin:/bin",
            "TOKENIZERS_PARALLELISM": "false", "HOME": str(Path.home())}
     results = []
     for label, cmd, marker, expect_failure in STAGES:
