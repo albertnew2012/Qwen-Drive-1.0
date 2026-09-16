@@ -27,8 +27,9 @@ from qwen_drive_perception import QwenDrivePerception
 from qwen_drive_perception.configuration_perception import OCC_EMPTY_LABEL
 
 from training.config import PerceptionTrainConfig
+from training.checkpointing import enable_bev_checkpointing
 from training.data import CachedPerceptionDataset
-from training.differentiable import enable_training_ops
+from training.differentiable import enable_training_ops, set_accum_dtype
 from training.losses import (HungarianMatcher3D, detection_loss, map_loss,
                              occupancy_loss)
 
@@ -57,6 +58,11 @@ def main() -> int:
     ap.add_argument("--no-det", action="store_true")
     ap.add_argument("--no-occ", action="store_true")
     ap.add_argument("--no-map", action="store_true")
+    ap.add_argument("--bf16-accum", action="store_true",
+                    help="accumulate the voxel scatter in bf16 instead of fp32 as "
+                         "the kernel does; saves ~4.9 GiB but is ~2%% worse and slower")
+    ap.add_argument("--no-checkpoint", action="store_true",
+                    help="disable BEV gradient checkpointing (needs ~20.7 GiB)")
     ap.add_argument("--device", default="cuda")
     args = ap.parse_args()
 
@@ -70,8 +76,14 @@ def main() -> int:
     print("differentiable ops enabled (the shipped kernels have no backward)")
 
     dtype = getattr(torch, cfg.amp_dtype)
+    if args.bf16_accum:
+        set_accum_dtype(dtype)     # halves the 3.93 GiB voxel scatter buffer
+        print(f'voxel scatter accumulates in {cfg.amp_dtype} (fp32 needs 3.93 GiB)')
     head = QwenDrivePerception.from_pretrained(args.model, dtype=dtype).to(args.device)
     bev = head.bev_modeling.train()
+    if not args.no_checkpoint:
+        nc = enable_bev_checkpointing(bev)
+        print(f"gradient checkpointing on {nc} BEV modules (incl. the view transform)")
     if args.scratch:
         for m in bev.modules():
             if hasattr(m, "reset_parameters"):

@@ -63,6 +63,8 @@ def main() -> int:
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--dynamo", action="store_true", help="use the TorchDynamo exporter")
     ap.add_argument("--skip-verify", action="store_true")
+    ap.add_argument("--no-cuda-gridsample", action="store_true",
+                    help="keep stock opset-20 GridSample, which ORT runs on CPU")
     ap.add_argument("--no-fold", action="store_true",
                     help="disable constant folding (keeps big zeros as "
                          "ConstantOfShape instead of a materialised tensor)")
@@ -121,6 +123,9 @@ def main() -> int:
                                       sorted(ops.items(), key=lambda x: -x[1])[:8]))
 
     if args.skip_verify:
+        if not args.no_cuda_gridsample:
+            n, total = _gridsample_to_cuda_contrib(str(out))
+            print(f"\nGridSample -> com.microsoft: {n}/{total} nodes now run on CUDA")
         return 0
     print("\nverifying against PyTorch with onnxruntime...")
     import onnxruntime as ort
@@ -138,7 +143,58 @@ def main() -> int:
         print(f"  {name:16s} {str(tuple(a.shape)):26s} max abs diff {d:.3e}  rel {rel:.3e}")
     ok = worst < 1e-3
     print(f"\nVERIFY: {'PASS' if ok else 'FAIL'}  (worst relative diff {worst:.2e})")
+
+    if not args.no_cuda_gridsample:
+        n, total = _gridsample_to_cuda_contrib(str(out))
+        print(f"\nGridSample -> com.microsoft: {n}/{total} nodes now run on CUDA "
+              f"({total - n} are 5-D and stay on CPU)")
     return 0 if ok else 1
+
+
+def _gridsample_to_cuda_contrib(path: str):
+    """Route 4-D GridSample at ORT's CUDA kernel instead of letting it hit CPU.
+
+    ORT registers a CUDA GridSample only in the ``com.microsoft`` domain, and it
+    accepts the opset-16 spelling ``bilinear``. Opset 20 renamed that mode to
+    ``linear``, so a stock opset-20 export silently runs every GridSample on the
+    CPU - 80% of this graph's runtime, plus the device round-trips it forces.
+    The 5-D nodes have no CUDA kernel at all and are left alone, which is why the
+    model has to stay at opset 20.
+    """
+    import onnx
+    meta = onnx.load(path, load_external_data=False)
+    ranks = {}
+    for vi in (list(onnx.shape_inference.infer_shapes(meta).graph.value_info)
+               + list(meta.graph.input)):
+        if vi.type.HasField("tensor_type") and vi.type.tensor_type.HasField("shape"):
+            ranks[vi.name] = len(vi.type.tensor_type.shape.dim)
+
+    model = onnx.load(path)
+    converted = total = 0
+    for node in model.graph.node:
+        if node.op_type != "GridSample" or node.domain not in ("", "ai.onnx"):
+            continue
+        total += 1
+        if ranks.get(node.input[0]) != 4:
+            continue
+        node.domain = "com.microsoft"
+        for attr in node.attribute:
+            if attr.name == "mode" and attr.s == b"linear":
+                attr.s = b"bilinear"
+        converted += 1
+    if converted:
+        model.opset_import.append(onnx.helper.make_opsetid("com.microsoft", 1))
+        before = {p for p in Path(path).parent.iterdir() if p.suffix != ".onnx"}
+        onnx.save(model, path, save_as_external_data=True,
+                  all_tensors_to_one_file=False, size_threshold=1024)
+        # Re-saving renames the external tensor files; the originals are now
+        # unreferenced and would otherwise double the directory on disk.
+        keep = {kv.value for t in model.graph.initializer
+                for kv in t.external_data if kv.key == "location"}
+        for stale in before:
+            if stale.name not in keep:
+                stale.unlink()
+    return converted, total
 
 
 if __name__ == "__main__":

@@ -8,15 +8,34 @@ printed. For *why* each obstacle exists, see
 PyTorch**, in 73 graphs totalling 54 GiB. Both driving pipelines - perception and
 planning - run end to end from ONNX and match PyTorch.
 
+Last verified end to end on **2026-09-16** by `bash export_onnx/run_export.sh`,
+56 minutes, both pipelines PASS. The full printout is in section 9.1.
+
 **There is no single .onnx file, and that is a runtime limit, not a choice.** See
 section 6.
+
+**One command for all of it:**
+
+```bash
+bash export_onnx/run_export.sh              # export + optimize + validate, ~55 min
+bash export_onnx/run_export_parallel.sh     # same artifacts, ~30 min, needs ~130 GB RAM
+STAGE=validate bash export_onnx/run_export.sh   # just the equivalence check
+STAGE=bench    bash export_onnx/run_export.sh   # GPU timing, needs .venv-ortgpu
+```
+
+The parallel variant runs the six independent export steps concurrently in
+RAM-sized waves (each exporter loads the 4.5 B VLM at ~31 GB, so RAM is the
+limit, not cores). It deliberately does **not** shard the 33 layer graphs and
+does **not** parallelise validation - the reasons are in its header.
+
+Section 9 is the summary: what is done, what it costs, what is left.
 
 ---
 
 ## 0. Before anything
 
 ```bash
-cd /home/albert/Desktop/Qwen-Drive-1.0
+cd /path/to/Qwen-Drive-1.0
 export PYTHONPATH=src:.
 export PATH="$PWD/.venv/bin:$PATH"
 export CUDA_VISIBLE_DEVICES=""      # export and validation run on CPU in fp32
@@ -24,6 +43,9 @@ export OMP_NUM_THREADS=8
 ```
 
 Dependencies (already installed): `onnx`, `onnxruntime`, `onnxscript`.
+
+[export_onnx/run_export.sh](export_onnx/run_export.sh) sets all of this itself,
+and caches the VLM feature taps first if they are missing.
 
 ---
 
@@ -39,6 +61,11 @@ Dependencies (already installed): `onnx`, `onnxruntime`, `onnxscript`.
 | Planning expert (one denoise step) | 1.0398 B | 9,315 | **4.2e-07** |
 
 ### End to end
+
+Numbers below are from an earlier run and are kept as a second, independent
+sample; the latest verified run is in section 9.1. Both agree to well within the
+tolerance, which is itself the useful signal - the residual moves a little
+between runs because ORT's threaded `ScatterElements` is nondeterministic.
 
 **Perception** - `vision -> 32 layers -> head`:
 
@@ -72,6 +99,8 @@ PyTorch, and fp32 addition is not associative (5e-04).
 ## 2. Export - all commands
 
 Order matters only in that the pipelines need their graphs to exist first.
+[export_onnx/run_export.sh](export_onnx/run_export.sh) runs everything below,
+plus the section 2.5 rewrites and the section 3 validation, in one go.
 
 ### 2.1 Perception path
 
@@ -116,6 +145,33 @@ Order matters only in that the pipelines need their graphs to exist first.
 `export_submodules.py` exports `vit_neck`, `adaptor` and `depth_net`
 individually. It exists as a bisect tool: a piece that passes there but fails
 inside the whole head tells you the fault is in the composition.
+
+### 2.5 GPU-placement rewrites (run these after exporting)
+
+Neither changes what a graph computes - both change **where** ORT runs it. ORT
+silently places a node on the CPU when it has no CUDA kernel for that opset or
+rank, and the device copies around it cost more than the node.
+
+```bash
+# 5-D GridSample has no CUDA kernel at any opset -> the BEV view transform ran
+# on the CPU. Rewrite it as an 8-corner gather + trilinear weights.
+.venv/bin/python export_onnx/gridsample5d_to_gather.py \
+    outputs/onnx/perception/perception.onnx
+
+# Pad and Resize have CUDA kernels only up to opset 18; declaring 20 stranded
+# them on the CPU. --verify checks every rewritten graph is bit-identical.
+.venv/bin/python export_onnx/retarget_opset.py \
+    outputs/onnx/perception/perception.onnx \
+    outputs/onnx/vlm_layers_v2 \
+    outputs/onnx/vlm_layers_plan_v2 \
+    --opset 18 --verify
+```
+
+Perception head **13,111 -> 1,106 ms**, decoder **3,944 -> 2,605 ms**. Both
+scripts take `--revert` and keep backups.
+
+**Re-exporting a graph undoes these.** If you rerun `export_perception.py`, the
+5-D `GridSample` comes back and the head returns to the CPU - rerun 2.5 after.
 
 ---
 
@@ -254,3 +310,205 @@ practical. That is the one change that would flip this answer.
 ```bash
 .venv/bin/python study/scripts/12_collect_results.py                 # 4c
 ```
+
+---
+
+## 9. Status: what is done, what it costs, what is left
+
+### 9.1 Is ONNX equivalent to PyTorch? Yes.
+
+Verbatim from a clean `bash export_onnx/run_export.sh` on **2026-09-16** - every
+graph re-exported from the checkpoint, rewritten, and validated in one 56-minute
+run. This is the output to compare against if you ever doubt an export.
+
+```
+  tensor                  relative diff   verdict
+  VLM hidden_states           2.055e-04   ok
+  VLM vit tap                 2.819e-05   ok
+  VLM llm tap                 3.331e-04   ok
+  planner KV keys (x8)        2.187e-04   ok
+  planner KV values (x8)      8.779e-05   ok
+  all_cls_scores              9.272e-04   ok
+  all_bbox_preds              8.646e-04   ok
+  occ_pred                    1.787e-06   ok
+  seg_preds                   3.337e-06   ok
+  PIPELINE PASS  (worst 9.27e-04, tolerance 5e-03)
+```
+
+```
+  trajectory (50, 3)   PyTorch endpoint [ 6.907 -0.814 -0.323]
+                       ONNX    endpoint [ 6.907 -0.814 -0.323]
+  max |diff| per axis (metres): x 0.0000  y 0.0000  heading 0.0000
+  ADE(onnx, pytorch) 0.00002 m      FDE 0.00005 m
+  PLANNER PASS  (ADE 1.81e-05 m, tolerance 5e-02)
+```
+
+The planner endpoint agrees to every printed decimal and the per-axis maximum
+difference rounds to zero at 0.1 mm. Both pipelines pass with roughly 5x and
+2700x margin against their tolerances.
+
+Per graph, against its PyTorch module:
+
+| graph | params | nodes | rel. diff |
+|---|---|---|---|
+| VLM vision tower | 0.3335 B | 3,747 | 7.1e-05 |
+| VLM text prefill x33 (perception) | 4.2058 B | 344,127 | 1.4e-06 |
+| VLM text prefill x33 (planning) | 4.2058 B | 366,983 | ~1e-06 |
+| VLM decode step | 4.2058 B | 10,233 | 2.0e-06 |
+| BEV perception head | 0.1251 B | 12,436 | 5.3e-04 |
+| planning expert (one step) | 1.0398 B | 9,315 | 4.2e-07 |
+
+The head is three orders worse than the planner, and that is expected rather than
+a defect: the planner is a transformer evaluated once, while the head accumulates
+~668,000 scattered contributions per frame in a different order than PyTorch, and
+fp32 addition is not associative.
+
+### 9.1b What the run itself cost
+
+| stage | measured |
+|---|---|
+| export, 6 steps | ~31 min |
+| optimize, GridSample + opset retarget with `--verify` | ~5 min |
+| perception `--phase run` | 408 s |
+| perception `--phase compare` | 216 s |
+| planning `--phase run` | 451 s |
+| planning `--phase compare` | 120 s |
+| **total wall clock** | **~56 min** |
+
+Inside the perception run, on CPU:
+
+```
+  frame 90162f90eceb4ada  6 cameras  2744 tokens
+         20.9s   vit_tap (10752, 1024)
+         8/32    67.8s
+        16/32   139.0s
+        24/32   213.3s
+        32/32   287.1s
+        hidden_states (1, 2744, 2560)   287.2s
+         77.6s   cls (6, 1, 900, 7)
+  ONNX pipeline total 388s
+```
+
+The PyTorch halves of the comparison were 79 s (VLM) + 37 s (head) and 92 s
+(planner prefill + 10 Euler steps).
+
+### 9.2 What it costs, against PyTorch
+
+**CPU, fp32 - the configuration the equivalence check runs in:**
+
+| | time |
+|---|---|
+| ONNX, whole perception pipeline | ~300 s |
+| PyTorch reference, same frame | ~150 s |
+
+**GPU (RTX 3090, 24 GiB), after the optimization pass in
+[OPTIMIZATION_REPORT.md](OPTIMIZATION_REPORT.md):**
+
+| path | first export | optimized | PyTorch |
+|---|---|---|---|
+| perception, frame wall time | 73,808 ms | **22,159 ms** | - |
+| trajectory, frame wall time | ~75,500 ms | **11,695 ms** | - |
+| both | ~149 s | **33.9 s** | **3.83 s** |
+
+GPU compute alone, excluding session construction, is **7,308 ms** of that 33.9 s.
+
+**PyTorch is still 8.8x faster end to end, and that is the honest headline.**
+ORT cannot keep a 17 GB fp32 decoder resident on a 24 GiB card, so it rebuilds
+layer sessions every frame; that rebuild, not arithmetic, is the dominant cost.
+
+### 9.3 What is NOT done
+
+* **`vlm_decode` is not exported by `run_export.sh`.** It is the autoregressive
+  chain-of-thought path - ~15 GB of artifacts that perception and trajectory
+  never read. The exporter still works: `export_vlm_decode.py --prefill 64`.
+* **`planner-rl` is not exported.** `planner-sft` is what both runners load.
+* **RL (stage 4) is out of scope** and is not implemented anywhere in the repo.
+* **No single `.onnx` file.** Section 6 - ORT session creation is quadratic in
+  node count, so the 341,977-node monolith never loads.
+* **Shapes are frozen.** The planner is exported at one scene's KV length (3385
+  tokens for the bundled demo scene). A different camera rig re-exports: a
+  nuScenes frame is 4364 tokens and will be rejected with "invalid dimensions
+  for scene_v_7".
+* **fp16 is not usable for the decoder.** It converts and loads, but the
+  Gated-DeltaNet recurrence overflows: perception hidden 8.74e-01 relative,
+  trajectory **NaN**. fp16 is used only on the trajectory path where it was
+  measured against the fp32 reference (ADE 0.0236 m).
+
+### 9.4 What to optimize next
+
+In priority order, from [OPTIMIZATION_REPORT.md](OPTIMIZATION_REPORT.md) section 7:
+
+1. **Chunk the deformable attention over the camera axis.** Of perception's
+   22.2 s, only 3.9 s is GPU compute; the other 18.3 s is rebuilding 32 layer
+   sessions because the head cannot coexist with a resident decoder. One
+   allocation drives it - sampled values `[48, 32, 10046, 32]` = 1.975 GB.
+   Chunking caps it at ~330 MB and would let the decoder stay resident.
+2. **A fused Gated-DeltaNet operator.** The chunk rule unrolls into 4,720 nodes
+   per layer even after the blocked triangular inverse. An ONNX `Loop`, or a
+   custom op with a CUDA kernel, would shrink the graph ~40x and cut session
+   build time with it. Note this is *not* a kernel-launch win - CUDA Graphs
+   measured 1.00x, so the decoder is not launch-bound.
+3. **More VRAM.** At ~21 GiB usable, a 17 GB fp32 decoder plus a ~13 GiB head
+   cannot coexist. A second card or a larger one removes the whole problem.
+
+Section 5 of the optimization report lists eleven approaches that were tried and
+rejected **with numbers**, including fp16 for the head, view-transform fusion,
+Einsum fusion and CUDA Graphs. Read it before re-attempting any of them.
+
+### 9.5 Exporting faster: `run_export_parallel.sh`
+
+`run_export.sh` is the reference path - sequential, and the one whose output
+produced the 9.1 printout. `run_export_parallel.sh` produces the same artifacts
+with two levels of parallelism.
+
+**Across steps.** The six export steps read nothing from each other, so they run
+in RAM-sized waves. RAM is the limit, not cores: each exporter loads the 4.5 B
+VLM at ~31 GB.
+
+**Inside a layer export.** `export_vlm_layers.py --jobs N` forks N workers that
+each trace a disjoint subset of the 32 decoder layers. Forking rather than a
+process pool is deliberate: the per-layer closure is not picklable, and children
+inherit the weights copy-on-write, so N workers cost ~31 GB in total instead of
+~31 GB each. Measured: four children showed 22.9 GB RSS apiece against a 31.7 GB
+parent - a naive sum of 123 GB - while `MemAvailable` fell by only 19 GB.
+
+Measured on four layers, four workers, back to back on an otherwise idle machine:
+
+| | `--jobs 1` | `--jobs 4` |
+|---|---|---|
+| layer export phase | 92 s | **27 s** (3.4x) |
+| total wall clock | 314 s | **222 s** (1.41x) |
+
+The layer phase is what scales; the rest is a fixed ~200 s prologue - model load,
+the forward pass that threads the hidden state through all 32 layers to give each
+export its real tracing input, and the 2.37 GiB `embed_tokens.npy` write. Over
+the real 32 layers that prologue is paid once against 8x more work, so the whole
+step goes ~15.6 min -> ~6.9 min, **2.25x**.
+
+**It is byte-identical.** Exporting the same layers both ways and comparing every
+file: all five graphs identical by MD5, and `manifest.json` differed in exactly
+three fields - `rel` values, at the 1e-7 level. Those come from the verification
+run, where onnxruntime's reduction order depends on thread count. Node counts and
+every structural key matched. That the graphs are identical at all is the same
+property that makes sharding sound: ONNX topology depends on input *shape*, not
+values, which is why all 24 linear layers trace to 4,720 nodes and all 8 full
+layers to 538.
+
+**The hazard, if you touch this code.** `fork()` duplicates only the calling
+thread. A child that inherits a futex held by an OpenMP worker which does not
+exist on its side blocks forever. With `OMP_NUM_THREADS=8` this reproduced every
+time: four children at 0% CPU and `00:00:00` cpu time, all in
+`futex_wait_queue_me`, indefinitely - and Python warns about it
+(`DeprecationWarning: ... multi-threaded, use of fork() may lead to deadlocks`).
+Setting `OMP_NUM_THREADS=1` avoids it but makes the whole prologue
+single-threaded. The fix in the code is narrower: `torch.set_num_threads(1)`
+immediately before the fork loop and restore after, so the prologue keeps all
+eight threads and only the fork point is quiesced.
+
+**Benchmark honestly.** The first measurement of this said parallel was 2x
+*slower*. It was comparing against a baseline taken earlier under a cleaner page
+cache; re-running `--jobs 1` under the same conditions as `--jobs 4` moved it
+from 119 s to 314 s. Repeated 4 GiB writes to the same scratch directory shift
+the result more than the change being measured. Always run the A and the B back
+to back.
+

@@ -12,9 +12,13 @@
   // GPU by default: the scripts default to --device cuda and --dtype bfloat16, so no
   // device flags appear here. Group 4 needs no GPU.
   //
-  // GPU configs set CUDA_HOME and prefix PATH with .venv/bin, because torch shells out to
+  // GPU configs prefix PATH with .venv/bin, because torch shells out to
   // `ninja` to JIT-build the two perception CUDA kernels and the venv bin is not on PATH
   // when python is launched by absolute path.
+  //
+  // CUDA_HOME is deliberately NOT set here - it is machine-specific. Set it in your
+  // VS Code user settings (terminal.integrated.env.linux) if your system nvcc is too
+  // old; torch needs 11+ and bakes whichever it finds into ~/.cache/torch_extensions.
   //
   // Plain ASCII on purpose - unicode escapes in this file break VS Code's config resolution.
     "version": "0.2.0",
@@ -37,7 +41,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -63,7 +66,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -89,7 +91,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -115,7 +116,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -141,7 +141,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -167,7 +166,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -193,7 +191,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -220,7 +217,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -248,7 +244,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -321,7 +316,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -350,7 +344,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -449,7 +442,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -477,7 +469,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -549,7 +540,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -580,7 +570,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -606,7 +595,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -636,7 +624,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -664,7 +651,6 @@
         "env": {
           "PYTHONPATH": "src",
           "TOKENIZERS_PARALLELISM": "false",
-        "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -728,7 +714,6 @@
         },
         "env": {
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -749,7 +734,6 @@
         },
         "env": {
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -771,7 +755,6 @@
         },
         "env": {
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -795,7 +778,6 @@
         },
         "env": {
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -816,7 +798,6 @@
         },
         "env": {
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -834,7 +815,6 @@
         },
         "env": {
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -857,7 +837,6 @@
         },
         "env": {
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -879,7 +858,6 @@
         },
         "env": {
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -904,7 +882,6 @@
         "env": {
           "CUDA_VISIBLE_DEVICES": "",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}",
           "OMP_NUM_THREADS": "8"
@@ -927,7 +904,6 @@
         "env": {
           "CUDA_VISIBLE_DEVICES": "",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}",
           "OMP_NUM_THREADS": "8"
@@ -953,7 +929,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "8",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -972,7 +947,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "8",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -994,7 +968,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "10",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1016,7 +989,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "10",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1038,7 +1010,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "10",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1060,7 +1031,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "10",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1084,7 +1054,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "10",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1106,7 +1075,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "10",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1128,7 +1096,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "10",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1150,7 +1117,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "10",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1172,7 +1138,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "10",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1209,7 +1174,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "8",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1231,7 +1195,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "8",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1253,7 +1216,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "8",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1275,7 +1237,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "8",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1297,7 +1258,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "8",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1321,7 +1281,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "8",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1343,7 +1302,6 @@
           "CUDA_VISIBLE_DEVICES": "",
           "OMP_NUM_THREADS": "8",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1361,7 +1319,6 @@
         "env": {
           "CUDA_VISIBLE_DEVICES": "",
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       },
@@ -1378,7 +1335,6 @@
         },
         "env": {
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
@@ -1400,7 +1356,6 @@
         },
         "env": {
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "NCCL_P2P_DISABLE": "1",
           "NCCL_IB_DISABLE": "1",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
@@ -1426,7 +1381,6 @@
         },
         "env": {
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "NCCL_P2P_DISABLE": "1",
           "NCCL_IB_DISABLE": "1",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
@@ -1452,7 +1406,6 @@
         },
         "env": {
           "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}",
-          "CUDA_HOME": "/usr",
           "NCCL_P2P_DISABLE": "1",
           "NCCL_IB_DISABLE": "1",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
