@@ -653,6 +653,13 @@ def main() -> int:
     ap.add_argument("--planner", default="weights/Qwen-Drive-1.0-4B/planner-sft")
     ap.add_argument("--num-samples", type=int, default=6)
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--around", type=int, default=None,
+                    help="nuScenes timestamp in microseconds to centre the window on")
+    ap.add_argument("--window", type=float, default=2.0,
+                    help="seconds either side of --around")
+    ap.add_argument("--future", type=float, default=5.0,
+                    help="seconds of future the last frame needs. Below 5 the GT path is "
+                         "clamped at the scene end and nav_command may degrade")
     ap.add_argument("--out", default="outputs/session")
     ap.add_argument("--rate", default="sweep", choices=["keyframe", "sweep"],
                     help="keyframe = 2 Hz (a slideshow); sweep = the ~12 Hz camera cadence")
@@ -697,7 +704,10 @@ def main() -> int:
 
     # the first renderable instant needs 1.5 s of history behind it
     t_start = sample_ts[0] + 1.5
-    t_end = sample_ts[-1] - 5.0                       # and 5 s of future for the GT path
+    t_end = sample_ts[-1] - args.future            # and 5 s of future for the GT path
+    if args.future < 5.0:
+        print(f"  note: --future {args.future:g}s < 5s, so the last frames' ground-truth path "
+              f"is clamped at the scene end (np.interp does not extrapolate)")
     if args.rate == "sweep":
         drive = cam_ts["CAM_FRONT"]
         times = drive[(drive >= t_start) & (drive <= t_end)]
@@ -707,6 +717,17 @@ def main() -> int:
         src_hz = 2.0
     if args.limit:
         times = times[: args.limit]
+    if args.around:
+        centre = args.around * 1e-6
+        keep = (times >= centre - args.window) & (times <= centre + args.window)
+        if not keep.any():
+            raise SystemExit(
+                f"--around {args.around} lands outside the renderable span "
+                f"[{times[0]:.1f}, {times[-1]:.1f}]; a frame needs 1.5 s of history "
+                f"behind it and 5 s of future ahead")
+        times = times[keep]
+        print(f"  window {args.window:g}s either side of {args.around} "
+              f"-> {len(times)} frames, {times[0] - centre:+.1f}s to {times[-1] - centre:+.1f}s")
     out_fps = src_hz * args.speed
     print(f"  rendering {len(times)} frames at {src_hz:.1f} Hz source "
           f"-> {out_fps:.2f} fps for {args.speed}x real speed "
