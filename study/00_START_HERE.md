@@ -51,6 +51,7 @@ Two ideas carry the whole design:
 | **06** | [**How 3D perception and online mapping work**](06_HOW_3D_PERCEPTION_WORKS.md) | **the main event** — the two lifts, the seeding, all three heads, mechanism by mechanism |
 | **07** | [**Push and Pull, made concrete**](07_PUSH_AND_PULL.md) | start here if "push" and "pull" are words rather than pictures. What literally moves, out of what, into what, with every shape. |
 | **08** | [**Training this repo**](08_TRAINING.md) | the release cannot back-propagate at all - two kernels have no backward. What that means, and a working 3-stage pipeline. |
+| **11** | [**Grounding the plan in perception**](11_GROUNDING_PLAN_IN_PERCEPTION.md) | no shipped loss reads both heads, so the planner may drive through a car it has correctly boxed. A stage that closes the loop - the three ways of writing the cost that quietly do not work, and an honest null on held-out scenes. |
 | **09** | [**ONNX export**](09_ONNX_EXPORT.md) | both heads exported and verified, and the silent bug that made a passing export return wrong numbers. |
 | **10** | [**Expected results**](10_EXPECTED_RESULTS.md) | every measured number, what counts as a regression, and how to re-verify. |
 | 01 | [Model structure](01_MODEL_STRUCTURE.md) | every parameter located, token layout, the hybrid attention stack, the planning expert |
@@ -110,7 +111,7 @@ Two ideas carry the whole design:
 
 ---
 
-## Five things that will bite you
+## Six things that will bite you
 
 1. **`num_inference_steps` > 10 silently breaks the sampler.** It is coupled to
    `min_one_minus_t = 0.1`; the defaults sit exactly on the boundary. At 20 steps ADE goes
@@ -123,6 +124,9 @@ Two ideas carry the whole design:
    and jerk computed from them measure the number format, not the model. [04 §1.4](04_RESULTS.md)
 5. **`VQA_DECODE_DEFAULTS` uses `top_k=1, repetition_penalty=1.0`** — pure greedy. Correct for
    reproducing benchmarks, and it loops forever on open-ended enumeration.
+6. **Perception and planning are never trained against each other.** No loss in the recipe
+   reads both heads, so a trajectory that contradicts the model's own occupancy grid costs
+   nothing. [11](11_GROUNDING_PLAN_IN_PERCEPTION.md)
 
 ---
 

@@ -29,6 +29,8 @@ except ImportError:                     # pragma: no cover
 __all__ = [
     "sigmoid_focal_loss", "normalize_bbox", "HungarianMatcher3D",
     "detection_loss", "occupancy_loss", "map_loss", "planning_loss",
+    "occupancy_collision_loss", "offroad_loss", "grounded_planning_loss",
+    "smooth_field",
 ]
 
 # DETR3D box code weights: velocity terms are down-weighted, as in BEVFormer.
@@ -302,3 +304,164 @@ def planning_loss(pred_x1, target, t=None, d1_weight: float = 2e-4,
         "plan_d1": d1_weight * F.mse_loss(d1_p, d1_t),
         "plan_d2": d2_weight * F.mse_loss(d2_p, d2_t),
     }
+
+
+# ───────────────────────────────────── perception-grounded planning (stage 3b)
+# Nothing in the released recipe ties the trajectory to the perception heads:
+# L_plan regresses onto the driven path and never consults occupancy or the map,
+# so the two agree only because they read the same frozen VLM. These terms close
+# that loop by scoring the planned waypoints against what perception predicted.
+#
+# Both terms score a plan for the FUTURE against perception's snapshot of NOW.
+# Scoring the human-driven path over 40 held-out nuScenes frames shows exactly
+# where that breaks (50 waypoints spanning 5 s):
+#
+#     i   t(s)   x_ahead   collision   offroad
+#    11   1.2     7.3 m     0.0000     0.0026
+#    12   1.3     7.9 m     0.0249     0.0023     <- collision breaks here
+#    14   1.5     9.1 m     0.0998     0.0016
+#    49   5.0    31.1 m     0.0002     0.0607     <- map head degrades at range
+#
+# The driven path is collision-free for exactly 1.2 s - the car-following gap -
+# and then appears to drive straight through the lead vehicle, because by the time
+# the ego arrives the lead vehicle has moved on. Charging the absolute risk would
+# train timidity, not safety: it scores the HUMAN at 0.0335, worse than the
+# released planner's 0.0274.
+#
+# So both terms are hinged against the driven path: only risk the plan incurs OVER
+# what the driven path incurs is charged. The stale-snapshot artefact is common to
+# both and cancels, the driven path scores exactly 0 by construction, and the full
+# 5 s horizon becomes usable. What survives is real disagreement - for the released
+# planner, excess collision peaking at 2.1-2.5 s and excess offroad reaching 0.03
+# past 4.5 s.
+COLLISION_HORIZON = 12      # waypoints (1.2 s) the driven path is absolutely collision-free for
+OFFROAD_HORIZON = 30        # waypoints (3.0 s) the map head stays reliable over
+
+
+def smooth_field(field, sigma_cells: float, padding_mode: str = "replicate"):
+    """Separable Gaussian blur, used to turn a cost *field* into a cost *gradient*.
+
+    The perception head emits near-binary rasters, so bilinearly sampling them
+    gives a derivative that is zero almost everywhere and enormous on the one-cell
+    edge of an object. Measured over 30 records, the resulting parameter gradient
+    spans five orders of magnitude (median 0.001, max 110) against an imitation
+    gradient of 0.055 - no single loss weight can work.
+
+    Blurring bounds the spatial derivative and, just as importantly, makes the cost
+    nonzero *near* an obstacle rather than only inside it: a plan that shaves past a
+    car now feels a push, so far more records produce signal. This is the usual
+    cost-map practice of planning against a smoothed obstacle field, and the blur
+    radius is exactly a safety margin.
+
+    Used for the LOSS only. The reported metric keeps the sharp field, so the blur
+    cannot flatter the numbers.
+    """
+    if sigma_cells <= 0:
+        return field
+    radius = max(1, int(round(3 * sigma_cells)))
+    x = torch.arange(-radius, radius + 1, device=field.device, dtype=field.dtype)
+    k = torch.exp(-0.5 * (x / sigma_cells) ** 2)
+    k = k / k.sum()
+    c = field.shape[1]
+    out = F.conv2d(F.pad(field, (radius, radius, 0, 0), mode=padding_mode),
+                   k.view(1, 1, 1, -1).expand(c, 1, 1, -1), groups=c)
+    return F.conv2d(F.pad(out, (0, 0, radius, radius), mode=padding_mode),
+                    k.view(1, 1, -1, 1).expand(c, 1, -1, 1), groups=c)
+
+
+def _sample_bev(field, xy, x_span, y_span, x_last: bool, padding_mode="zeros"):
+    """Bilinearly sample a BEV field at ego-frame ``xy`` metres.
+
+    ``field`` is ``[B, C, H, W]``. ``x_last`` says which spatial axis is ego-X,
+    because occupancy is stored ``[x, y]`` while the map raster is ``[y, x]``.
+    ``grid_sample`` is differentiable in the sampling coordinates, which is what
+    lets the gradient push a waypoint out of an occupied cell.
+    """
+    x0, x1 = x_span
+    y0, y1 = y_span
+    u_x = 2.0 * (xy[..., 0] - x0) / (x1 - x0) - 1.0
+    u_y = 2.0 * (xy[..., 1] - y0) / (y1 - y0) - 1.0
+    pair = (u_x, u_y) if x_last else (u_y, u_x)     # grid[..., 0] indexes W
+    grid = torch.stack(pair, dim=-1).unsqueeze(1)   # [B, 1, P, 2]
+    sampled = F.grid_sample(field, grid, mode="bilinear",
+                            padding_mode=padding_mode, align_corners=False)
+    return sampled[:, :, 0, :]                      # [B, C, P]
+
+
+def occupancy_collision_loss(traj, occ_risk, pc_range, horizon: int | None = None,
+                             reference=None):
+    """Predicted object-occupancy under the planned waypoints.
+
+    ``occ_risk`` is ``[B, 1, X, Y]`` in [0, 1]: the probability a BEV cell holds
+    an object, already collapsed over height. Outside the grid the risk reads as
+    zero, so leaving the mapped area is neither rewarded nor punished.
+
+    ``reference`` is the driven path in the same metric frame. Given it, the score
+    becomes the risk the plan incurs OVER the driven path, which cancels occupancy
+    that is stale rather than dangerous. ``horizon`` optionally truncates the plan.
+    """
+    def risk_of(t):
+        return _sample_bev(occ_risk, t[..., :2], (pc_range[0], pc_range[3]),
+                           (pc_range[1], pc_range[4]), x_last=False).clamp(0.0, 1.0)
+
+    if horizon is not None:
+        traj = traj[..., :horizon, :]
+        reference = None if reference is None else reference[..., :horizon, :]
+    risk = risk_of(traj)
+    if reference is not None:
+        risk = (risk - risk_of(reference)).clamp_min(0.0)
+    return risk.mean()
+
+
+def offroad_loss(traj, drivable, xbound, ybound, horizon: int | None = None,
+                 reference=None):
+    """How far the planned waypoints stray off the predicted drivable surface.
+
+    Waypoints beyond the map window are ignored rather than penalised: the 5 s
+    horizon reaches ~165 m while the map only covers 30 m ahead. ``reference``
+    hinges the score against the driven path, so only strays the human did not
+    make are charged - which also cancels the map head's own error at range.
+    """
+    def off_of(t):
+        p = _sample_bev(drivable, t[..., :2], (xbound[0], xbound[1]),
+                        (ybound[0], ybound[1]), x_last=True, padding_mode="border")
+        return 1.0 - p.clamp(0.0, 1.0)
+
+    if horizon is not None:
+        traj = traj[..., :horizon, :]
+        reference = None if reference is None else reference[..., :horizon, :]
+    off = off_of(traj)
+    if reference is not None:
+        off = (off - off_of(reference)).clamp_min(0.0)
+    x, y = traj[..., 0], traj[..., 1]
+    inside = ((x >= xbound[0]) & (x <= xbound[1]) &
+              (y >= ybound[0]) & (y <= ybound[1])).to(off.dtype).unsqueeze(1)
+    return (off * inside).sum() / inside.sum().clamp_min(1.0)
+
+
+def grounded_planning_loss(pred_x1, target, traj_metres, occ_risk, drivable,
+                           pc_range, xbound, ybound, valid_mask=None,
+                           d1_weight: float = 2e-4, d2_weight: float = 2e-5,
+                           collision_weight: float = 0.0,
+                           offroad_weight: float = 0.0,
+                           collision_horizon: int | None = None,
+                           offroad_horizon: int | None = None,
+                           reference_metres=None):
+    """``planning_loss`` plus the two perception-grounded terms.
+
+    ``traj_metres`` is the same prediction as ``pred_x1`` after denormalisation,
+    since the BEV fields are indexed in metres. ``reference_metres`` is the driven
+    path in those units; passing it hinges both terms against it, which is what
+    makes them measure disagreement rather than the age of the snapshot.
+    """
+    parts = planning_loss(pred_x1, target, d1_weight=d1_weight,
+                          d2_weight=d2_weight, valid_mask=valid_mask)
+    if collision_weight:
+        parts["plan_collision"] = collision_weight * occupancy_collision_loss(
+            traj_metres, occ_risk, pc_range, horizon=collision_horizon,
+            reference=reference_metres)
+    if offroad_weight:
+        parts["plan_offroad"] = offroad_weight * offroad_loss(
+            traj_metres, drivable, xbound, ybound, horizon=offroad_horizon,
+            reference=reference_metres)
+    return parts

@@ -249,17 +249,79 @@ activations, so it still does not fit. Wrong tool on both.
 
 ---
 
+## 4b. Stage 3b - grounding the plan in perception
+
+The shipped recipe never makes the trajectory answer to what the model sees: no
+loss reads both heads, so the planner may drive through a car its own perception
+head has correctly boxed. Stage 3b adds two terms that charge a plan for
+disagreeing with perception. The reasoning - and the two ways of writing the cost
+that do **not** work - is in
+[study/11_GROUNDING_PLAN_IN_PERCEPTION.md](study/11_GROUNDING_PLAN_IN_PERCEPTION.md).
+
+Needs nuScenes trainval: it is the only source here where a frame has both a full
+camera ring and a 5 s ego future.
+
+```bash
+# 1. cache (~1.7 h, ~114 GB for 850 scenes)
+.venv/bin/python -u training/cache_grounded_features.py \
+    --dataroot /path/to/nuscenes --version v1.0-trainval --max-scenes 850
+
+# 2. control - identical fine-tune, grounded terms off (~47 min)
+.venv/bin/python -u training/train_planner_grounded.py \
+    --collision-weight 0 --offroad-weight 0 --seed 0 --out outputs/plan_control
+
+# 3. grounded (~1.7 h)
+.venv/bin/python -u training/train_planner_grounded.py \
+    --collision-weight 0.007 --offroad-weight 0.004 \
+    --occ-sigma 2.0 --map-sigma 2.0 --seed 0 --out outputs/plan_grounded
+
+# 4. score all three on the same held-out frames, with paired CIs
+.venv/bin/python -u training/eval_grounded.py \
+    --ckpt sft=pretrained \
+    --ckpt control=outputs/plan_control/planning_expert.pt \
+    --ckpt grounded=outputs/plan_grounded/planning_expert.pt \
+    --paired-against control
+```
+
+The VLM and perception head are frozen and enter as cached constants, so only the
+1.04 B expert is on the optimiser - it fits one 3090 with ~7 GB to spare.
+
+**Read `excess_collision` / `excess_offroad`, not the raw rates.** The raw rates
+charge a plan for occupancy that has simply gone stale, and rank the human-driven
+path *below* the released model.
+
+**Read the paired CI, not the means.** With 80 held-out frames the per-frame
+variance swamps the effect; `--paired-against` reports a bootstrap interval on the
+difference, which is the only number that supports a claim.
+
+### Result as measured
+
+On 120 **training** frames the grounded terms cut excess collision 43 %
+(0.0058 -> 0.0033, 95 % CI [-0.00478, -0.00068]) and *improve* ADE by 0.05 m
+(1.264 -> 1.214, CI [-0.077, -0.024]) - safety and imitation are not in tension.
+On 80 **held-out** frames the same comparison is -0.00024 with CI
+[-0.00119, +0.00050]: not resolved. Tripling the weights changes nothing.
+
+The loss works where it is applied and does not generalise from 770 records. See
+[study/11](study/11_GROUNDING_PLAN_IN_PERCEPTION.md) section 5; the missing
+experiment is `--frames-per-scene 8`.
+
+---
+
 ## 5. What the pipeline is made of
 
 | file | role |
 |---|---|
 | [`differentiable.py`](training/differentiable.py) | **the enabler** - routes the two forward-only CUDA kernels to differentiable torch twins |
-| [`losses.py`](training/losses.py) | all five losses + the Hungarian matcher |
+| [`losses.py`](training/losses.py) | all five losses + the Hungarian matcher, plus the stage-3b grounded terms |
 | [`config.py`](training/config.py) | hyperparameters, with paper-vs-ours marked |
 | [`cache_features.py`](training/cache_features.py) | pre-extract the frozen VLM's two taps |
 | [`train_perception.py`](training/train_perception.py) | stage 1 |
 | [`train_joint.py`](training/train_joint.py) | stage 2 (LoRA + checkpointing) |
 | [`train_planner.py`](training/train_planner.py) | stage 3 (flow matching) |
+| [`cache_grounded_features.py`](training/cache_grounded_features.py) | stage 3b - nuScenes frames carrying both a camera ring and a 5 s future |
+| [`train_planner_grounded.py`](training/train_planner_grounded.py) | stage 3b (flow matching + perception agreement) |
+| [`eval_grounded.py`](training/eval_grounded.py) | scores several planner checkpoints on identical frames |
 | [`lora.py`](training/lora.py) | ~70-line LoRA, no extra dependency |
 | [`checkpointing.py`](training/checkpointing.py) | gradient checkpointing, incl. the view transform |
 | [`run_all_stages.py`](training/run_all_stages.py) | the PASS/FAIL sweep |
@@ -288,6 +350,8 @@ matching cost, as in BEVFormer.
 | CUDA OOM at ~20 GiB | expected without checkpointing; `train_joint.py` enables it by default |
 | stage 2 "FAIL" after <8 steps | run-length artifact, see 3.5 |
 | stage 3 "passes" instantly from released weights | you forgot `--scratch` |
+| stage 3b grounded terms print 0.0000 forever | either you truncated the horizon (the planner never collides inside 1.2 s) or you scored `predict_endpoint` at a random `t` instead of a replayed rollout |
+| stage 3b runs but changes nothing / ADE gets worse | the loss and the metric are scoring different tensors - the terms must see the sampler's output, see study 11 §2.5 |
 | NCCL hangs on 2 GPUs | no P2P on consumer cards - use `training/run_ddp.sh` |
 | cross-device index error | the frustum bug; `patch_frustum_device()` fixes it |
 
