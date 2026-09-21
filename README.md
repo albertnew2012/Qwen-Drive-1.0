@@ -21,18 +21,22 @@
 ---
 
 <p align="center">
-  <img src="assets/nuscenes_session.gif" alt="Qwen-Drive-1.0 on a nuScenes session" width="95%">
+  <img src="assets/nuscenes_session_traffic_light_3d.gif" alt="Qwen-Drive-1.0 on a nuScenes session, with ego-lane traffic lights" width="95%">
 </p>
 
 <p align="center">
-  <sub>A nuScenes session at 0.75x speed &mdash; first 12 s, full 1238&times;1505 resolution.
-  Camera ring with the predicted trajectory projected into every view, the lidar BEV, and
-  the chain of thought the model writes <i>before</i> the trajectory. Bottom row:
-  <b>semantic occupancy</b> on the left, and on the right the <b>online map with every
-  detected object and the predicted path drawn on it</b> &mdash; the three heads in one
-  picture, where they either agree or visibly do not. Full clips:
-  <code>outputs/nuscenes_session_map_1.0x.mp4</code> (real time) and
-  <code>..._0.75x.mp4</code>.</sub>
+  <sub>A nuScenes session at 0.75x speed &mdash; 12 s through a 98&deg; left turn, full
+  1238&times;1505 resolution. Camera ring with the predicted trajectory projected into
+  every view, the lidar BEV, and the chain of thought the model writes <i>before</i> the
+  trajectory. Bottom row: <b>semantic occupancy</b> on the left, and on the right the
+  <b>online map with every detected object and the predicted path drawn on it</b>.
+  Added here: <b>traffic lights with predicted range and height</b>, drawn as 3D boxes on
+  the front camera &mdash; the lights governing the ego's own lane in their colour, the
+  rest cyan, with a magnified inset because a 0.3 m-deep object has no visible perspective
+  at 40 m. See <a href="TRAFFIC_LIGHT.md">TRAFFIC_LIGHT.md</a> and
+  <a href="VQA_FINETUNE.md">VQA_FINETUNE.md</a>. Full clips:
+  <code>outputs/tlb/demo_v2/session_day_turn_all_perception.mp4</code> and the
+  original light-free session in <code>outputs/nuscenes_session_map_1.0x.mp4</code>.</sub>
 </p>
 
 ---
@@ -48,6 +52,8 @@ three things the release does not ship:
 | **[TRAINING.md](TRAINING.md)** | the staged recipe from arXiv:2609.00111, implemented and verified. Stages 1-3 pass; stage 4 (RL) needs a simulator that is not public. |
 | **[ONNX_EXPORT.md](ONNX_EXPORT.md)** | every component exported - 73 graphs, 54 GiB - and both driving pipelines validated end to end against PyTorch. |
 | **[study/](study/00_START_HERE.md)** | 12 documents on how the model works, built by instrumenting live forwards rather than reading code. |
+| **[TRAFFIC_LIGHT.md](TRAFFIC_LIGHT.md)** | Ego-lane traffic lights on OpenLane-V2 subset B: which light governs *your* lane, what colour it is, and where it is in 3D. The perception pipeline (97.9%), the ground truth, and every negative result. |
+| **[VQA_FINETUNE.md](VQA_FINETUNE.md)** | The same problem asked in words. How the LoRA fine-tune works, why the training *mix* mattered far more than any hyperparameter, and the control showing the base model was reporting the salient lamp rather than associating. |
 
 Upstream code in `src/` and `scripts/` is **unmodified** except for one CPU
 fallback in `src/qwen_drive_perception/ops/__init__.py`. Everything added lives in
@@ -259,6 +265,59 @@ Reproduce any number: `.venv/bin/python study/scripts/12_collect_results.py`
 regenerates `outputs/expected_results.json`, and
 [study/10_EXPECTED_RESULTS.md](study/10_EXPECTED_RESULTS.md) says what counts as
 a regression.
+
+---
+
+## 5. Ego-lane traffic lights
+
+Which traffic light governs *your* lane, and what colour is it. On
+[OpenLane-V2 subset B](TRAFFIC_LIGHT.md) (nuScenes imagery, 6019 validation frames),
+solved two ways.
+
+<p align="center">
+  <img src="assets/front3d_perception_vs_vqa.gif" alt="3D perception, planned path and ego-lane traffic light, perception vs VQA" width="95%">
+</p>
+
+<p align="center">
+  <sub>Front camera, everything the stack predicts, both methods scored against the same
+  ground truth. <b>3D cuboids on every detected object</b>, the planner's <b>5 s
+  trajectory</b> in cyan against the path actually driven in orange, and <b>traffic lights
+  as 3D boxes carrying predicted range and height</b> — the lights governing the ego's own
+  lane in their colour with <code>EGO 20 m h 3.7 m</code>, every other light cyan with its
+  range. Footer: what the perception pipeline answered, the truth, and what the fine-tuned
+  VQA answered, with running tallies. Red, green and yellow scenes.</sub>
+</p>
+
+**Perception** — a 3.8 M head on the **frozen** vision tower (`src/qwen_drive_perception/`
+is untouched; the existing detection, map and occupancy heads are unaffected). It reads
+the same pre-merge ViT tap and predicts, per cell, objectness, box, colour, whether the
+light governs the ego lane, and — in the 3D variant — log-range and height. Association is
+then a *comparison*: a set-attention selector scores every light in the frame against the
+others, and the answer is a soft vote weighted by P(governs), which suppresses cross
+traffic for free because a sideways-facing lamp reads as `unknown` and barely votes.
+3D positions come from triangulating each light across frames and snapping to Occ3D
+occupancy — 0.35 m against lidar, height error 0.41 m.
+
+**VQA** — LoRA (r=16, 5.5 M of 4.539 B) on the attention projections, next-token loss
+masked to the answer tokens. The training *mix* mattered far more than any hyperparameter:
+adding frames where the right answer is "none" cut invented colours by 64%.
+
+| | frames with an ego light | all 6019 frames |
+|---|---|---|
+| base Qwen-Drive | 92.6% | 80.1% |
+| VQA, fine-tuned | 94.7% | 88.5% |
+| **perception** | **97.9%** | **90.1%** |
+
+Labels are derived from the lane graph, never hand-drawn: ego pose → ego lane →
+`topology_lclc` → `topology_lcte` → colour. The interesting result is a control: the base
+model scores 92.6% while a question that *never mentions the ego lane* scores higher, and
+on frames where lights are visible but none is the ego's it names a colour anyway **77%**
+of the time. It was reporting the salient lamp, not associating.
+
+**[TRAFFIC_LIGHT.md](TRAFFIC_LIGHT.md)** &mdash; perception method, 3D localisation, ground
+truth, and what did not work.
+**[VQA_FINETUNE.md](VQA_FINETUNE.md)** &mdash; the fine-tune: LoRA setup, the four training
+mixes, the exhausted hyperparameter sweep, and lane type.
 
 ---
 
