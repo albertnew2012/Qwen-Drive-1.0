@@ -41,6 +41,8 @@ def main() -> int:
     ap.add_argument("--root", default="data/nuscenes")
     ap.add_argument("--version", default="v1.0-mini")
     ap.add_argument("--out", default="data/distill/ego")
+    ap.add_argument("--include-short-future", action="store_true",
+                    help="also write the scene-end keyframes whose 5 s future is incomplete (has_future=0)")
     args = ap.parse_args()
     os.chdir(_ROOT)
 
@@ -103,7 +105,8 @@ def main() -> int:
 
         fut_t = t0 + (np.arange(1, N_FUTURE + 1) / HZ) * 1e6
         his_t = t0 - (np.arange(N_HISTORY)[::-1] / (N_HISTORY / HIST_S)) * 1e6
-        if fut_t[-1] > times[-1] + 1e5:
+        has_future = not (fut_t[-1] > times[-1] + 1e5)
+        if not has_future and not args.include_short_future:
             short += 1
             continue
         here = at(np.array([float(t0)]))[0]
@@ -124,10 +127,14 @@ def main() -> int:
         # commands are defined: lateral offset at the horizon
         lat = float(future[-1, 1])
         nav = 0 if abs(lat) < 4.0 else (1 if lat > 0 else 2)
+        # has_future=0: the 5 s future runs past the scene end (clamped to the last pose);
+        # the ego STATE is still valid, so deployment/demo frames get real kinematics, while
+        # the loader masks the trajectory loss for these frames.
         np.savez(out / f"{s['token']}.npz", future=future, history=history,
                  velocity=vel, acceleration=acc,
                  nav=np.int64(nav),
-                 speed=np.float32(np.linalg.norm(vel[-1])))
+                 speed=np.float32(np.linalg.norm(vel[-1])),
+                 has_future=np.int64(has_future))
         made += 1
     print(f"  wrote {made} ego records to {out}  ({skip} already present, "
           f"{short} keyframes too close to scene end)")

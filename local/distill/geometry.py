@@ -13,7 +13,22 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["bev_indices"]
+__all__ = ["bev_indices", "bev_indices_all"]
+
+
+def bev_indices_all(lidar2img: np.ndarray, lidar2ego: np.ndarray, cfg):
+    """(index, valid) for every camera, stacked as (n_cams, depth_bins * H * W).
+
+    All views scatter into the SAME BEV grid, which is the whole point: a front-only
+    student can never reproduce the teacher, because only ~24% of the teacher's
+    detections fall inside the front camera's field of view. Six views cost 2.3x rather
+    than 6x, because the BEV encoder, decoder and heads downstream are paid once.
+    """
+    idx, val = [], []
+    for cam in range(cfg.n_cams):
+        i, v = bev_indices(lidar2img, lidar2ego, cfg, cam=cam)
+        idx.append(i); val.append(v)
+    return np.stack(idx, 0), np.stack(val, 0)
 
 
 def bev_indices(lidar2img: np.ndarray, lidar2ego: np.ndarray, cfg, stride: int = 16,

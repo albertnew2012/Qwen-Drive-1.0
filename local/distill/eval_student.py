@@ -41,10 +41,16 @@ def main() -> int:
     if not Path(args.ckpt).exists():
         print("  no checkpoint yet")
         return 0
-    cfg = StudentConfig()
-    model = StudentDetector(cfg).cuda().eval()
     st = torch.load(args.ckpt, map_location="cuda")
-    model.load_state_dict(st["model"])
+    # Rebuild the config the checkpoint was trained with rather than assuming defaults:
+    # a pool=100 checkpoint will not load into a pool=40 model, and inferring one field
+    # at a time is what made this fail silently before.
+    saved = st.get("cfg") or {}
+    cfg = StudentConfig(**{k: v for k, v in saved.items()
+                           if k in StudentConfig.__init__.__code__.co_varnames})
+    print(f"  config from checkpoint: pool={cfg.pool} ref_points={cfg.ref_points}")
+    model = StudentDetector(cfg).cuda().eval()
+    model.load_state_dict(st["model"], strict=False)
     step = st.get("step", 0)
 
     everything = DistillSet(Path(args.frames), Path(args.teacher), cfg)
@@ -58,12 +64,23 @@ def main() -> int:
     tp = fp = fn = 0
     dists = []
     ades = []
+    occ_i, occ_u, seg_i, seg_u = {}, {}, {}, {}
     with torch.no_grad():
         for i in range(len(val)):
             b = val[i]
-            pc, pb, pt = model(b["image"][None].cuda(),
-                               b["bev_index"].cuda(), b["valid"].cuda(),
-                               b["ego"][None].cuda())
+            pc, pb, pocc, pseg, pt = model(b["image"][None].cuda(),
+                                           b["bev_index"].cuda(), b["valid"].cuda(),
+                                           b["ego"][None].cuda())
+            # Occupancy and map agreement with the teacher, as mean IoU over the
+            # classes the teacher actually uses in this frame. Accuracy alone is
+            # useless here: free space dominates both grids.
+            for pred, tgt, acc_i, acc_u in ((pocc[0].argmax(-1), b["occ"], occ_i, occ_u),
+                                            (pseg[0].argmax(0), b["seg"], seg_i, seg_u)):
+                pr = pred.cpu().numpy().reshape(-1)
+                tg = tgt.numpy().reshape(-1)
+                for c in np.unique(tg):
+                    acc_i[c] = acc_i.get(c, 0) + int(((pr == c) & (tg == c)).sum())
+                    acc_u[c] = acc_u.get(c, 0) + int(((pr == c) | (tg == c)).sum())
             if float(b["has_traj"]) > 0:
                 ade = np.linalg.norm(
                     pt[0, :, :2].float().cpu().numpy() - b["future"][:, :2].numpy(),
@@ -80,7 +97,20 @@ def main() -> int:
                     pb[0].float().cpu().numpy()[both, :3] - b["box"].numpy()[both, :3],
                     axis=-1)
                 dists += d.tolist()
+    def miou(inter, union, drop=None):
+        v = [inter[c] / union[c] for c in union
+             if union[c] > 0 and (drop is None or c != drop)]
+        return float(np.mean(v)) if v else None
+    # Occupancy is 95.6% free space, so mIoU including the free class is dominated by
+    # the one class that is trivial to get right. The occupancy literature reports mIoU
+    # over the occupied classes, and so does this: occ_miou is the honest number,
+    # occ_miou_all is kept beside it so the difference is visible rather than hidden.
+    free_cls = max(occ_u, key=lambda c: occ_u[c]) if occ_u else None
     rep = {"step": int(step), "frames": len(val), "threshold": args.thr,
+           "occ_miou": miou(occ_i, occ_u, drop=free_cls),
+           "occ_miou_all": miou(occ_i, occ_u),
+           "occ_free_class": int(free_cls) if free_cls is not None else None,
+           "seg_miou": miou(seg_i, seg_u),
            "recall": tp / max(tp + fn, 1), "precision": tp / max(tp + fp, 1),
            "tp": tp, "fp": fp, "fn": fn,
            "centre_median_m": float(np.median(dists)) if dists else None,
@@ -89,9 +119,15 @@ def main() -> int:
     print(f"  step {step}: recall {rep['recall']:.1%}  precision {rep['precision']:.1%}  "
           f"centre median {rep['centre_median_m'] if rep['centre_median_m'] is None else round(rep['centre_median_m'],3)} m"
           f"   (tp {tp} fp {fp} fn {fn})")
+    def pct(x):
+        return "n/a" if x is None else f"{x:.1%}"
+    print(f"           occupancy mIoU {pct(rep['occ_miou'])} over occupied classes "
+          f"({pct(rep['occ_miou_all'])} incl. free)   map mIoU {pct(rep['seg_miou'])}"
+          f"   -- all against the teacher")
     if ades:
         print(f"           trajectory ADE {np.mean(ades):.3f} m over {len(ades)} frames "
-              f"(teacher against the same ground truth: 0.335 m)")
+              f"(teacher measured on nuScenes against the same ground truth: 1.393 m; "
+              f"constant velocity 2.241 m, linear probe on ego state 1.469 m)")
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(rep, indent=1))
     return 0

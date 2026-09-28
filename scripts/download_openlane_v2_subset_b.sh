@@ -13,10 +13,14 @@
 set -uo pipefail
 
 REPO=AlayaNeW/OpenDriveLab___OpenLane-V2
-ROOT=/home/albert/Desktop/Qwen-Drive-1.0/data
+# Resolve paths relative to the repo root (this script lives in <repo>/scripts/),
+# so the script runs unchanged on any checkout.
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+ROOT=${OLV2_DATA_ROOT:-$REPO_ROOT/data}
 DEST=$ROOT/OpenLane-V2
 WORK=$ROOT/.olv2_download
-HF=/home/albert/Desktop/Qwen-Drive-1.0/.venv/bin/hf
+HF=${HF_CLI:-$REPO_ROOT/.venv/bin/hf}
+[ -x "$HF" ] || HF=$(command -v hf)
 
 # md5 of each tar, from the official OpenLane-V2 data/README.md table
 declare -A MD5=(
@@ -31,7 +35,11 @@ declare -A MD5=(
   [image_7]=443045d7a3faf5998af27e2302d3503e
   [image_8]=6ecb7a9e866e29ed73d335c2d897f50e
 )
-# info first: it carries data_dict_subset_B.json, preprocess.py and openlanev2.md5
+# info first: it carries the per-frame info/*.json for every segment.
+# Note: the tars contain ONLY image/ and info/ trees. The split map
+# data_dict_subset_B.json is NOT in them (nor on the HF mirror) -- it lives in
+# the upstream GitHub repo and is fetched separately below. local/tlb/build_*_gt*.py
+# read it from $DEST, so the dataset is unusable for GT building without it.
 ORDER=(info image_0 image_1 image_2 image_3 image_4 image_5 image_6 image_7 image_8)
 
 mkdir -p "$DEST" "$WORK"
@@ -81,6 +89,22 @@ for key in "${ORDER[@]}"; do
   rm -f "$tarball"
   log "OK       $key done; disk free: $(df -h --output=avail "$ROOT" | tail -1 | tr -d ' ')"
 done
+
+# The split map is not distributed in the tars; pull it from upstream GitHub.
+DD="$DEST/data_dict_subset_B.json"
+DD_URL=https://raw.githubusercontent.com/OpenDriveLab/OpenLane-V2/master/data/OpenLane-V2/data_dict_subset_B.json
+if [ -s "$DD" ]; then
+  log "SKIP     data_dict_subset_B.json (already present)"
+else
+  log "FETCH    data_dict_subset_B.json"
+  if curl -sSfL -o "$DD.tmp" "$DD_URL" && python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$DD.tmp"; then
+    mv "$DD.tmp" "$DD"
+    log "OK       data_dict_subset_B.json"
+  else
+    rm -f "$DD.tmp"
+    log "WARN     could not fetch data_dict_subset_B.json -- GT building will fail until it is added"
+  fi
+fi
 
 log "--- all parts downloaded and extracted ---"
 log "top level: $(ls "$DEST" | tr '\n' ' ')"

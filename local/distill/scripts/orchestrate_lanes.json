@@ -1,0 +1,55 @@
+{
+  "target_retained_pct": 95.0,
+  "deadline": "2026-09-28 09:00",
+  "round1": [
+    {
+      "name": "r2_long",
+      "gpus": "0,1,2,3",
+      "nproc": 4,
+      "steps": 120000,
+      "extra": "--image-size 1152 640",
+      "after": [
+        "final"
+      ]
+    },
+    {
+      "name": "r2_hist3",
+      "gpus": "4,5,6,7",
+      "nproc": 4,
+      "steps": 60000,
+      "extra": "--image-size 1152 640 --history 3",
+      "after": [
+        "r1"
+      ]
+    },
+    {
+      "name": "r3_final",
+      "gpus": "0,1,2,3",
+      "nproc": 4,
+      "steps": 75000,
+      "extra": "--image-size 1152 640 --history 3",
+      "after": [
+        "r2_long"
+      ]
+    }
+  ],
+  "backlog": [
+    {
+      "name": "r3_fine",
+      "gpus": "4,5,6,7",
+      "nproc": 4,
+      "steps": 50000,
+      "extra": "--image-size 1152 640 --history 3 --head-upsample 2",
+      "after": [
+        "r2_hist3"
+      ]
+    }
+  ],
+  "round2": {
+    "name": "r3_final",
+    "gpus": "0,1,2,3,4,5,6,7",
+    "nproc": 8,
+    "steps": 0
+  },
+  "force_res": "1152 640"
+}
