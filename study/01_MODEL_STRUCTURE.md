@@ -8,9 +8,9 @@
 >
 > Every number below was dumped from the **actual downloaded checkpoint**
 > (`Qwen/Qwen-Drive-1.0-4B`, 4 safetensors files, 1908 tensors) by
-> [`local/anatomy.py`](../local/anatomy.py) and [`local/token_layout.py`](../local/token_layout.py)
+> [`tools/anatomy.py`](../tools/anatomy.py) and [`tools/token_layout.py`](../tools/token_layout.py)
 > — not from the README and not from memory.
-> Reproduce with: `python local/anatomy.py --per-layer` and `PYTHONPATH=src python local/token_layout.py`
+> Reproduce with: `python tools/anatomy.py --per-layer` and `PYTHONPATH=src python tools/token_layout.py`
 
 Code: [`QwenDriveForPlanning`](../src/qwen_drive/modeling_qwen_drive.py) holds the VLM and
 the planning expert; [`QwenDrivePerception`](../src/qwen_drive_perception/modeling_perception.py)
@@ -98,7 +98,7 @@ representations".
 
 ---
 
-## 0b. Parameter tree (real numbers, from `local/anatomy.py`)
+## 0b. Parameter tree (real numbers, from `tools/anatomy.py`)
 
 ```
 Qwen-Drive-1.0 release directory ─────────────── 13.78 GB on disk
@@ -472,7 +472,7 @@ for a rationale, and whose cache the expert reads.
 `planner-rl` was reward-optimized **only** on reasoning-conditioned rollouts, so it must be
 run in `REASONING_PLANNING`. `planner-sft` covers both.
 
-Measured prompt lengths (`local/token_layout.py`, scene `a53176b0…-149`):
+Measured prompt lengths (`tools/token_layout.py`, scene `a53176b0…-149`):
 
 ```
 DIRECT     3385 tok = 3054 image + 331 text
@@ -515,6 +515,6 @@ uninformative, and the remaining **15** poses use the same scale. Hence
 ## 6. Reproducing every number here
 
 ```bash
-python local/anatomy.py --root weights/Qwen-Drive-1.0-4B --per-layer
-PYTHONPATH=src python local/token_layout.py
+python tools/anatomy.py --root weights/Qwen-Drive-1.0-4B --per-layer
+PYTHONPATH=src python tools/token_layout.py
 ```

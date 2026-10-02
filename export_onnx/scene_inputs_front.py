@@ -23,7 +23,7 @@ def perception_inputs_cams(vlm_dir: str, perception_dir: str, frames: str, frame
     from qwen_drive import QwenDriveForPlanning
     from qwen_drive_perception import QwenDrivePerception
     from qwen_drive_perception.dataset import PerceptionFrame, PerceptionProcessor
-    from local.prune.eval_camera_subset_v1 import subset_frame
+    from tools.prune.eval_camera_subset_v1 import subset_frame
 
     holder = QwenDriveForPlanning.from_pretrained(
         vlm_dir, dtype=dtype, attn_implementation="eager")

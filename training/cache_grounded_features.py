@@ -40,7 +40,7 @@ from qwen_drive_perception.configuration_perception import NUSCENES_OCC_PC_RANGE
 from qwen_drive_perception.dataset import PerceptionProcessor
 from transformers import AutoTokenizer
 
-from local.nuscenes_session import CAM_ORDER, SessionFrame, build_scene, ego_track
+from tools.nuscenes_session import CAM_ORDER, SessionFrame, build_scene, ego_track
 
 # Only the first 7 of the 10 occupancy classes are objects; 7/8/9 are driveable,
 # background and empty, which a trajectory is supposed to drive over.

@@ -26,7 +26,7 @@ def main() -> int:
     from qwen_drive import QwenDriveForPlanning
     from qwen_drive_perception import QwenDrivePerception
     from qwen_drive_perception.dataset import PerceptionProcessor, PerceptionFrame
-    from local.prune.eval_camera_subset_v1 import subset_frame
+    from tools.prune.eval_camera_subset_v1 import subset_frame
 
     token = "90162f90eceb4ada9e595bc1adb71b5f"
     vlm_dir = "weights/Qwen-Drive-1.0-4B"

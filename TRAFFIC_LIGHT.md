@@ -141,7 +141,7 @@ light applies rather than which colour it is.
 
 Nothing in `src/qwen_drive_perception/` was modified — `git status` shows no tracked file
 changed, and the repo's 3D detection, online mapping and occupancy still run identically
-(verified by re-running `local/run_perception_demo.py`). The traffic-light stack is a
+(verified by re-running `tools/run_perception_demo.py`). The traffic-light stack is a
 **separate head reading the same frozen ViT tap**, with `requires_grad_(False)` on every
 VLM parameter, so no gradient can reach the shared backbone.
 
@@ -454,13 +454,13 @@ At episode level, 82 of 86 episodes are perfect.
 
 ```bash
 scripts/download_openlane_v2_subset_b.sh     # 45 GB, md5-checked against the official table
-.venv/bin/python local/tlb/build_gt.py       # ego-lane GT
-.venv/bin/python local/tlb/build_det_gt.py   # per-light GT (81,797 instances)
-.venv/bin/python local/tlb/extract_crops.py  # colour-head training crops
-.venv/bin/python local/tlb/cache_roi.py --split train   # frozen-tower features
-.venv/bin/python local/tlb/train_colour.py --balance    # colour head
-.venv/bin/python local/tlb/train_selector.py            # association
-.venv/bin/python local/tlb/pipeline.py --vote soft --topk 6
+.venv/bin/python tools/tlb/build_gt.py       # ego-lane GT
+.venv/bin/python tools/tlb/build_det_gt.py   # per-light GT (81,797 instances)
+.venv/bin/python tools/tlb/extract_crops.py  # colour-head training crops
+.venv/bin/python tools/tlb/cache_roi.py --split train   # frozen-tower features
+.venv/bin/python tools/tlb/train_colour.py --balance    # colour head
+.venv/bin/python tools/tlb/train_selector.py            # association
+.venv/bin/python tools/tlb/pipeline.py --vote soft --topk 6
 ```
 
 Every model's epoch is chosen on a held-out slice of **train** segments. Val is read once,

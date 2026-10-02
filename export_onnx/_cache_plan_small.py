@@ -23,7 +23,7 @@ def main() -> int:
     os.chdir(_ROOT)
 
     from qwen_drive import benchmarks
-    from local.prune.optimise_planning_v1 import shrink_side_views
+    from tools.prune.optimise_planning_v1 import shrink_side_views
     original = benchmarks.read_scene_file
 
     def patched(*a, **k):

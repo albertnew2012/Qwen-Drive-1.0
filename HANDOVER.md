@@ -41,7 +41,7 @@ mattered, because several of these are non-obvious and cost days to find:
   assignment inside the chunk loop. `gdn_onnx_v2.py` rewrites it: 67.3 -> 19.0 ms.
 * **A bit-exact voxel crop.** With one camera the 16x200x200 voxel volume is 8.7%
   occupied, and the writable box is fixed by calibration. Cropping the 3-D convs to it is
-  *exact* (verified 0.000e+00) and saves 64 ms. `local/prune/voxel_crop_v1.py`.
+  *exact* (verified 0.000e+00) and saves 64 ms. `tools/prune/voxel_crop_v1.py`.
 * **Only the projection GEMMs can go fp16.** The chunk decay is `exp(cumsum)` and
   overflows -- PyTorch in float16 returns a NaN trajectory too. `fp16_weights_v3.py`
   converts one GEMM at a time with explicit casts, which is what the two existing
@@ -89,7 +89,7 @@ planner consumes.
 
 ### Shape, and why it is this shape
 
-`local/distill/student.py`, 81.8 M parameters, 39.1 ms, 25.6 Hz. Sized by measuring:
+`distill/student.py`, 81.8 M parameters, 39.1 ms, 25.6 Hz. Sized by measuring:
 
 ```
 r34  d384 bev256 L6 blocks3    47.0 M   19.0 ms   52.7 Hz
@@ -131,7 +131,7 @@ Export-friendly by construction, which the teacher never was:
 
 ```bash
 source export_onnx/env_gpu.sh                     # cuDNN/cuBLAS from torch's wheels
-setsid nohup .venv/bin/python -u local/distill/orchestrate_10hz.py \
+setsid nohup .venv/bin/python -u distill/orchestrate_10hz.py \
     > outputs/distill.log 2>&1 < /dev/null &
 ```
 
@@ -144,13 +144,13 @@ nuScenes samples -> extract ego futures -> refresh box stats -> cache teacher ou
 Individual stages:
 
 ```bash
-python local/distill/nusc_frames.py  --root data/nuscenes_trainval --version v1.0-trainval
-python local/distill/nusc_ego.py     --root data/nuscenes_trainval --version v1.0-trainval
-python local/distill/cache_teacher.py                     # ~0.51 fps, GPU
-python local/distill/box_stats.py
-python local/distill/train_student.py --steps 50000       # ~3.1 it/s at batch 4
-python local/distill/export_student.py                    # exports and times
-python local/distill/eval_student.py                      # agreement with the teacher
+python distill/nusc_frames.py  --root data/nuscenes_trainval --version v1.0-trainval
+python distill/nusc_ego.py     --root data/nuscenes_trainval --version v1.0-trainval
+python distill/cache_teacher.py                     # ~0.51 fps, GPU
+python distill/box_stats.py
+python distill/train_student.py --steps 50000       # ~3.1 it/s at batch 4
+python distill/export_student.py                    # exports and times
+python distill/eval_student.py                      # agreement with the teacher
 ```
 
 ### Data
@@ -207,10 +207,10 @@ against the teacher's, not just the outputs · and only then reconsider the arch
 | `export_onnx/run_onnx_drive_v2.py` | resident sessions, device-to-device chaining, GPU placement |
 | `export_onnx/orchestrate_fast_onnx.py` | the twelve-stage export pipeline, resumable |
 | `export_onnx/check_parity_v2.py`, `compare_parity_v2.py` | parity against PyTorch |
-| `local/prune/voxel_crop_v1.py` | the bit-exact lift-splat crop |
-| `local/prune/*.py` | every pruning measurement behind the numbers above |
-| `local/distill/student.py` | the compact joint model |
-| `local/distill/orchestrate_10hz.py` | the distillation loop |
+| `tools/prune/voxel_crop_v1.py` | the bit-exact lift-splat crop |
+| `tools/prune/*.py` | every pruning measurement behind the numbers above |
+| `distill/student.py` | the compact joint model |
+| `distill/orchestrate_10hz.py` | the distillation loop |
 | `scripts/download_nuscenes_trainval.sh` | resumable trainval download |
 
 ## Environment

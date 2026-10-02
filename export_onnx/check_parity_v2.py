@@ -1,7 +1,7 @@
 """Compare the v2 ONNX export against PyTorch on the same frame and scene.
 
 The reference is bfloat16 PyTorch, because that is the path the model actually
-ships and the one ``local/bench_drive_torch.py`` measures. A float32 reference
+ships and the one ``tools/bench_drive_torch.py`` measures. A float32 reference
 would be the better yardstick but does not fit: the 4B decoder alone is 16 GiB in
 float32 and the head needs the rest of the card.
 

@@ -156,19 +156,19 @@ lane and its light is green"* — is right **76.7%** of the time (lane type 79.9
 
 ```bash
 # traffic light, the v3 mix
-.venv/bin/python local/tlb/train_vqa_v2.py --train data/tlb/ft_full_train_v3.jsonl \
+.venv/bin/python tools/tlb/train_vqa_v2.py --train data/tlb/ft_full_train_v3.jsonl \
     --cond full --rank 16 --epochs 1 --save outputs/tlb/lora_vqa_v3.pt
-.venv/bin/python local/tlb/eval_vqa.py --src data/tlb/full_val.jsonl --cond full \
+.venv/bin/python tools/tlb/eval_vqa.py --src data/tlb/full_val.jsonl --cond full \
     --question full --lora outputs/tlb/lora_vqa_v3.pt
 
 # lane type
-.venv/bin/python local/tlb/train_lanetype_v1.py --train data/tlb/ft_lanetype_train.jsonl \
+.venv/bin/python tools/tlb/train_lanetype_v1.py --train data/tlb/ft_lanetype_train.jsonl \
     --cond hires --rank 32 --epochs 1 --save outputs/tlb/lora_lanetype_v1.pt
-.venv/bin/python local/tlb/eval_lanetype.py --question arrow --lora outputs/tlb/lora_lanetype_v1.pt
+.venv/bin/python tools/tlb/eval_lanetype.py --question arrow --lora outputs/tlb/lora_lanetype_v1.pt
 
 # the control that matters: does any association prompt beat an association-free one?
-.venv/bin/python local/tlb/prompt_study.py --cond hires
-.venv/bin/python local/tlb/compare_prompts.py
+.venv/bin/python tools/tlb/prompt_study.py --cond hires
+.venv/bin/python tools/tlb/compare_prompts.py
 ```
 
 Every prompt, mix and hyperparameter was chosen on dev or on a holdout of train segments;

@@ -57,7 +57,7 @@ three things the release does not ship:
 
 Upstream code in `src/` and `scripts/` is **unmodified** except for one CPU
 fallback in `src/qwen_drive_perception/ops/__init__.py`. Everything added lives in
-`training/`, `export_onnx/`, `study/` and `local/`.
+`training/`, `export_onnx/`, `study/`, `distill/` and `tools/`.
 
 ---
 
@@ -257,7 +257,8 @@ README_UPSTREAM.md   the original Qwen-Drive README
 training/            differentiable.py (the enabler), losses, 3 stages, multi-GPU
 export_onnx/         exporters, geometry freezing, end-to-end runners
 study/               12 documents + scripts that print live numbers
-local/               demo runners, video tools, analysis
+distill/             the 54 M student distilled from the teacher (distill/DISTILLATION.md)
+tools/               demo runners, video tools, analysis
 .vscode/launch.json  61 one-keypress configs for everything above
 ```
 

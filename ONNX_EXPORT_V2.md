@@ -22,7 +22,7 @@ traced into thousands of tiny serialised kernels.
 | &nbsp;&nbsp;Planning Expert, 10 Euler steps | | 392 ms | |
 
 Against PyTorch bfloat16 on the same machine, stage for stage on the same frame
-(`local/bench_drive_torch.py` for the whole-pipeline figure, and a per-stage
+(`tools/bench_drive_torch.py` for the whole-pipeline figure, and a per-stage
 timing of the same modules for the breakdown):
 
 | perception stage | PyTorch bf16 | ONNX v2 | ONNX/torch |
@@ -106,7 +106,7 @@ inversion and took the layer to 3,952 nodes.
 It did not get faster. 1,972 nodes after ORT's folding ran in 130.8 ms; 445 nodes
 (at chunk 256) ran in 133.3 ms. A captured CUDA graph replayed in 1.01x the time,
 so the GPU really was busy that long. **Node count was never the cost.** That
-matches `ONNX_EXPORT.md` §9.4 and contradicts `local/bench_drive_torch.py`'s
+matches `ONNX_EXPORT.md` §9.4 and contradicts `tools/bench_drive_torch.py`'s
 docstring, which attributes the slowness to launch overhead.
 
 ### What the cost actually was

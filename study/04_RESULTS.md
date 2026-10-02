@@ -3,7 +3,7 @@
 **Headline numbers are from the RTX 3090** (bf16, the authors' CUDA kernels). Reproduce with:
 
 ```bash
-bash local/run_all.sh          # GPU by default
+bash tools/run_all.sh          # GPU by default
 ```
 
 Everything was *originally* produced on CPU (AMD Ryzen 9 3900X, fp32, torch fallbacks) while
@@ -235,7 +235,7 @@ sensible failure direction for a planner.
 
 ### 1.3 Error decomposition, and a trap in reading it
 
-`local/analyze_planning.py` breaks the error into longitudinal, lateral and heading
+`tools/analyze_planning.py` breaks the error into longitudinal, lateral and heading
 components. Doing that surfaced a methodological trap worth recording, because it produced a
 wrong conclusion before it produced a right one.
 
@@ -419,7 +419,7 @@ that everything else is rounding error.** On GPU the same passes are seconds.
 
 ### The dtype asymmetry
 
-`local/bench_dtype.py`, VLM prefill:
+`tools/bench_dtype.py`, VLM prefill:
 
 | | prefill 256 | prefill 1024 | decode 1 token |
 |---|---|---|---|
@@ -520,7 +520,7 @@ ground-truth lane lines, road edges and crosswalks closely.
 ## 4. Visual question answering
 
 Single-frame questions (~868 image tokens, vs 3054 for a full planning scene), VLM only —
-the planning expert is not involved. `local/run_vqa_probe.py`.
+the planning expert is not involved. `tools/run_vqa_probe.py`.
 
 ### Driving question, and an OCR result worth checking
 
@@ -633,7 +633,7 @@ never bites; it is a property you only meet off the evaluation path.
 - **`planner-sft` in either mode.** Queued: the same four scenes with the non-RL checkpoint,
   which is what decides whether §1.1's result is a checkpoint/metric mismatch or a real
   problem with reasoning conditioning. Run it with
-  `local/analyze_planning.py --compare-with outputs/planning_sft`.
+  `tools/analyze_planning.py --compare-with outputs/planning_sft`.
 - **Any head-to-head number against Alpamayo 1.5.** Still the highest-value open experiment;
   see Session 6 of [`00_START_HERE.md`](00_START_HERE.md).
 - **The fp32-vs-bf16 planning delta.** One command once the GPU is free, and worth doing

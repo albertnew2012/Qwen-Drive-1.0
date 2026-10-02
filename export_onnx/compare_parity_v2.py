@@ -5,7 +5,7 @@ the BEV head's intermediates and the decoder do not both fit on a 24 GiB card.
 This reads those references together with the export's saved outputs.
 
 The reference is bfloat16 PyTorch: that is the path the model ships and the one
-``local/bench_drive_torch.py`` measures. float16 PyTorch was run as a yardstick
+``tools/bench_drive_torch.py`` measures. float16 PyTorch was run as a yardstick
 and returns NaN -- the Gated-DeltaNet decay is an ``exp`` of a cumulative sum and
 float16 has no range for it. That is the same failure a whole-graph fp16 ONNX
 conversion produces (0.41 relative, measured), and it is why the export keeps the

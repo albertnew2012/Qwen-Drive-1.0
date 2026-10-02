@@ -37,7 +37,7 @@ learned the hard way on a 24 GB card that also drives a desktop:
 
 CPU NOTE: two CUDA kernels back this head. `ms_deform_attn_bf16` has a torch fallback in the
 upstream repo; `voxel_pool_depth` did not, and one was added in
-src/qwen_drive_perception/ops/__init__.py (verified exact — local/test_voxel_pool_cpu.py).
+src/qwen_drive_perception/ops/__init__.py (verified exact — tools/test_voxel_pool_cpu.py).
 So this runs on CPU, in fp32, which is also the dtype the head ships in.
 
 Run:
@@ -137,7 +137,7 @@ def main() -> int:
     ap.add_argument("--render", default=None, help="write the summary PNG here")
     ap.add_argument("--dump", default=None,
                     help="save each stage's tensors (reduced to 2-D maps) as an .npz, for "
-                         "local/make_perception_video.py")
+                         "tools/make_perception_video.py")
     args = ap.parse_args()
 
     if args.device == "cpu":

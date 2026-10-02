@@ -23,7 +23,7 @@ def planning_inputs_small(vlm_dir: str, planner_dir: str, scenes: str, image_roo
     from qwen_drive import QwenDriveForPlanning
     from qwen_drive.benchmarks import read_scene_file
     from qwen_drive.images import ImageArchive
-    from local.prune.optimise_planning_v1 import shrink_side_views
+    from tools.prune.optimise_planning_v1 import shrink_side_views
 
     holder = QwenDriveForPlanning.from_pretrained(
         vlm_dir, planner=planner_dir, dtype=dtype, attn_implementation="eager")

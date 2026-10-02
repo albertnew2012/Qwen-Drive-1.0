@@ -38,7 +38,7 @@ declare -A MD5=(
 # info first: it carries the per-frame info/*.json for every segment.
 # Note: the tars contain ONLY image/ and info/ trees. The split map
 # data_dict_subset_B.json is NOT in them (nor on the HF mirror) -- it lives in
-# the upstream GitHub repo and is fetched separately below. local/tlb/build_*_gt*.py
+# the upstream GitHub repo and is fetched separately below. tools/tlb/build_*_gt*.py
 # read it from $DEST, so the dataset is unusable for GT building without it.
 ORDER=(info image_0 image_1 image_2 image_3 image_4 image_5 image_6 image_7 image_8)
 

@@ -12,7 +12,7 @@ must actively carry across is that 1.2 MB — and right now it is **not committe
 lives in untracked paths, so **a fresh `git clone` of upstream gets none of it**:
 
 ```
-training/  export_onnx/  study/  local/  .vscode/
+training/  export_onnx/  study/  distill/  tools/  .vscode/
 README.md  TRAINING.md  ONNX_EXPORT.md  SETUP.md  setup.sh
 assets/nuscenes_session.gif  assets/two_lifts.png
 src/qwen_drive_perception/ops/__init__.py   (the one modified upstream file)
@@ -27,7 +27,7 @@ git add -A && git commit -m "Training pipeline, ONNX export, study docs"
 git push origin study          # then clone that branch on the other machine
 
 # B. or just tar the additions - 1.2 MB of code, 8.4 MB with the assets
-tar czf qwen-drive-work.tgz training export_onnx study local .vscode \
+tar czf qwen-drive-work.tgz training export_onnx study distill tools .vscode \
     *.md setup.sh .gitignore assets/nuscenes_session.gif assets/two_lifts.png \
     src/qwen_drive_perception/ops/__init__.py
 ```

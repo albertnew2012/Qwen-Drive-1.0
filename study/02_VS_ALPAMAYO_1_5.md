@@ -259,6 +259,6 @@ That does **not** mean abandon the Alpamayo work. It means:
 - The benchmark numbers in §2 are **transcribed from the Qwen-Drive README**, which is the
   authors evaluating themselves and their competitor. I have not reproduced any of them.
 - The structural numbers in §1 and §5 **are** measured — from the downloaded checkpoints,
-  by [`local/anatomy.py`](../local/anatomy.py). Those you can trust.
+  by [`tools/anatomy.py`](../tools/anatomy.py). Those you can trust.
 - No planning quality comparison in this document is empirical. The experiment that would
   make it empirical is Session 6 of [`00_START_HERE.md`](00_START_HERE.md).

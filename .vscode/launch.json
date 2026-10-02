@@ -254,7 +254,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/anatomy.py",
+        "program": "${workspaceFolder}/tools/anatomy.py",
         "args": [
           "--root",
           "weights/Qwen-Drive-1.0-4B",
@@ -278,7 +278,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/token_layout.py",
+        "program": "${workspaceFolder}/tools/token_layout.py",
         "args": [],
         "presentation": {
           "group": "1-understand",
@@ -298,7 +298,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/nuscenes_session.py",
+        "program": "${workspaceFolder}/tools/nuscenes_session.py",
         "args": [
           "--scene",
           "0",
@@ -326,7 +326,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/nuscenes_session.py",
+        "program": "${workspaceFolder}/tools/nuscenes_session.py",
         "args": [
           "--scene",
           "1",
@@ -354,7 +354,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/encode_session.py",
+        "program": "${workspaceFolder}/tools/encode_session.py",
         "args": [
           "outputs/sweep_s0",
           "outputs/nuscenes_session_0.75x.mp4"
@@ -377,7 +377,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/encode_session.py",
+        "program": "${workspaceFolder}/tools/encode_session.py",
         "args": [
           "outputs/sweep_s0",
           "outputs/nuscenes_session_1.0x.mp4",
@@ -402,7 +402,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/encode_session.py",
+        "program": "${workspaceFolder}/tools/encode_session.py",
         "args": [
           "outputs/sweep_s1",
           "outputs/nuscenes_session_scene1_0.75x.mp4"
@@ -479,7 +479,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/make_perception_video.py",
+        "program": "${workspaceFolder}/tools/make_perception_video.py",
         "args": [],
         "presentation": {
           "group": "2-visualise",
@@ -499,7 +499,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/make_video.py",
+        "program": "${workspaceFolder}/tools/make_video.py",
         "args": [
           "--output",
           "outputs/qwen_drive_demo.mp4"
@@ -522,7 +522,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/run_planning_demo.py",
+        "program": "${workspaceFolder}/tools/run_planning_demo.py",
         "args": [
           "--modes",
           "direct,reasoning",
@@ -550,7 +550,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/run_planning_demo.py",
+        "program": "${workspaceFolder}/tools/run_planning_demo.py",
         "args": [
           "--planner",
           "weights/Qwen-Drive-1.0-4B/planner-sft",
@@ -580,7 +580,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/run_perception_demo.py",
+        "program": "${workspaceFolder}/tools/run_perception_demo.py",
         "args": [
           "--output",
           "outputs/perception_demo"
@@ -605,7 +605,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/run_vqa_probe.py",
+        "program": "${workspaceFolder}/tools/run_vqa_probe.py",
         "args": [
           "--max-new-tokens",
           "400",
@@ -661,7 +661,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/analyze_planning.py",
+        "program": "${workspaceFolder}/tools/analyze_planning.py",
         "args": [
           "--dir",
           "outputs/planning_demo",
@@ -687,7 +687,7 @@
         "request": "launch",
         "stopOnEntry": true,
         "justMyCode": true,
-        "program": "${workspaceFolder}/local/summarize.py",
+        "program": "${workspaceFolder}/tools/summarize.py",
         "args": [],
         "presentation": {
           "group": "4-analyse",
@@ -705,6 +705,8 @@
         "name": "5a. TRAIN step 1 - cache the VLM feature taps (run this first)",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/training/cache_features.py",
         "args": [],
         "console": "integratedTerminal",
@@ -722,6 +724,8 @@
         "name": "5b. TRAIN gradient test - PROVES the patch enables training",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/training/test_gradients.py",
         "args": [
           "--dtype",
@@ -742,6 +746,8 @@
         "name": "5z. TRAIN gradient test WITHOUT the patch - shows the shipped failure",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/training/test_gradients.py",
         "args": [
           "--skip-patch",
@@ -763,6 +769,8 @@
         "name": "5c. TRAIN stage 1 - perception head, OVERFIT one frame (the key test)",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/training/train_perception.py",
         "args": [
           "--steps",
@@ -786,6 +794,8 @@
         "name": "5d. TRAIN stage 1 - perception head on all 6 frames",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/training/train_perception.py",
         "args": [
           "--steps",
@@ -806,6 +816,8 @@
         "name": "5e. TRAIN stage 3 - cache planner scene caches",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/training/cache_planner_features.py",
         "args": [],
         "console": "integratedTerminal",
@@ -823,6 +835,8 @@
         "name": "5f. TRAIN stage 3 - planning expert, OVERFIT from scratch",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/training/train_planner.py",
         "args": [
           "--steps",
@@ -845,6 +859,8 @@
         "name": "5g. TRAIN stage 2 - JOINT perception + VLM (LoRA + checkpointing)",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/training/train_joint.py",
         "args": [
           "--steps",
@@ -866,6 +882,8 @@
         "name": "6a. ONNX export the perception head (+ verify vs PyTorch)",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/export_perception.py",
         "args": [
           "--no-fold",
@@ -891,6 +909,8 @@
         "name": "6b. ONNX inspect an exported graph",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/inspect_onnx.py",
         "args": [
           "--model",
@@ -913,6 +933,8 @@
         "name": "6c. ONNX export the PLANNING EXPERT step (+ verify)",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/export_planner.py",
         "args": [
           "--opset",
@@ -936,6 +958,8 @@
         "name": "6d. ONNX export perception SUBMODULES (bisect helper)",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/export_submodules.py",
         "args": [],
         "console": "integratedTerminal",
@@ -954,6 +978,8 @@
         "name": "6e. ONNX export the VLM VISION tower (+ verify)",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/export_vlm.py",
         "args": [
           "--part",
@@ -975,6 +1001,8 @@
         "name": "6f. ONNX export the VLM TEXT prefill, 4.2 B hybrid (+ verify)",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/export_vlm.py",
         "args": [
           "--part",
@@ -996,6 +1024,8 @@
         "name": "6g. ONNX export VLM text as PER-LAYER graphs (perception shapes)",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/export_vlm_layers.py",
         "args": [
           "--task",
@@ -1017,6 +1047,8 @@
         "name": "6h. ONNX export VLM text as PER-LAYER graphs (planning shapes)",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/export_vlm_layers.py",
         "args": [
           "--task",
@@ -1038,6 +1070,8 @@
         "name": "6i. ONNX export the VLM vision tower for PLANNING",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/export_vlm.py",
         "args": [
           "--part",
@@ -1061,6 +1095,8 @@
         "name": "6j. ONNX RUN the full perception pipeline",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/run_onnx_pipeline.py",
         "args": [
           "--phase",
@@ -1082,6 +1118,8 @@
         "name": "6k. ONNX VALIDATE perception vs PyTorch",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/run_onnx_pipeline.py",
         "args": [
           "--phase",
@@ -1103,6 +1141,8 @@
         "name": "6l. ONNX RUN the full planning pipeline",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/run_onnx_planner.py",
         "args": [
           "--phase",
@@ -1124,6 +1164,8 @@
         "name": "6m. ONNX VALIDATE planning trajectory vs PyTorch",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/run_onnx_planner.py",
         "args": [
           "--phase",
@@ -1145,6 +1187,8 @@
         "name": "5v. TRAIN verify ALL stages end to end (the one to run)",
         "type": "node",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "runtimeExecutable": "bash",
         "program": "${workspaceFolder}/training/verify_all.sh",
         "console": "integratedTerminal",
@@ -1160,6 +1204,8 @@
         "name": "7a. ONNX PIPELINE perception - run the graphs (saves outputs)",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/run_onnx_pipeline.py",
         "args": [
           "--phase",
@@ -1181,6 +1227,8 @@
         "name": "7b. ONNX PIPELINE perception - VALIDATE against PyTorch",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/run_onnx_pipeline.py",
         "args": [
           "--phase",
@@ -1202,6 +1250,8 @@
         "name": "7c. ONNX PIPELINE planning - run the graphs (saves trajectory)",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/run_onnx_planner.py",
         "args": [
           "--phase",
@@ -1223,6 +1273,8 @@
         "name": "7d. ONNX PIPELINE planning - VALIDATE trajectory against PyTorch",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/run_onnx_planner.py",
         "args": [
           "--phase",
@@ -1244,6 +1296,8 @@
         "name": "7e. ONNX export VLM text layers - PLANNING shape",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/export_vlm_layers.py",
         "args": [
           "--task",
@@ -1265,6 +1319,8 @@
         "name": "7f. ONNX export VLM vision - PLANNING shape",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/export_vlm.py",
         "args": [
           "--part",
@@ -1288,6 +1344,8 @@
         "name": "6n. ONNX export the VLM DECODE step (token generation, 64 states)",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/export_onnx/export_vlm_decode.py",
         "args": [
           "--prefill",
@@ -1309,6 +1367,8 @@
         "name": "4c. Collect all measured results -> expected_results.json",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/study/scripts/12_collect_results.py",
         "args": [],
         "console": "integratedTerminal",
@@ -1326,6 +1386,8 @@
         "name": "5s. TRAIN - run EVERY stage and report PASS/FAIL",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/training/run_all_stages.py",
         "args": [],
         "console": "integratedTerminal",
@@ -1343,6 +1405,8 @@
         "name": "8a. 2-GPU stage 2 - MODULE parallel, vision encoder trainable",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/training/train_joint_2gpu.py",
         "args": [
           "--steps",
@@ -1366,6 +1430,8 @@
         "name": "8b. 2-GPU stage 2 - same, LoRA rank 64",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/training/train_joint_2gpu.py",
         "args": [
           "--steps",
@@ -1391,6 +1457,8 @@
         "name": "8c. 1-GPU stage 3 baseline (DDP is SLOWER here - see 08)",
         "type": "debugpy",
         "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
         "program": "${workspaceFolder}/training/train_planner.py",
         "args": [
           "--steps",
@@ -1409,6 +1477,115 @@
           "NCCL_P2P_DISABLE": "1",
           "NCCL_IB_DISABLE": "1",
           "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      // 9-student: the distilled student (distill), on the teacher's nuscenes_session.gif scene.
+      // Run 9a before 9b: 9a renders with the PyTorch checkpoint and exports it to ONNX, 9b renders
+      // with that ONNX file and compares every frame with 9a. LD_LIBRARY_PATH reproduces
+      // export_onnx/env_gpu.sh so onnxruntime finds CUDA/cuDNN in torch's nvidia wheels;
+      // without it ORT silently falls back to CPU (~9 s per frame).
+      {
+        "name": "9a. STUDENT session - PyTorch checkpoint: render, then export to ONNX",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/distill/student_session.py",
+        "args": [
+          "--ckpt",
+          "outputs/student_release_v6/student_r4_small_avg.pt",
+          "--scene",
+          "0",
+          "--gpu",
+          "0",
+          "--out",
+          "outputs/student_session_pytorch",
+          "--gif",
+          "outputs/student_session_pytorch/nuscenes_session_student_pytorch.gif",
+          "--export-onnx",
+          "outputs/student_export/student_r4_small_avg.onnx"
+        ],
+        "presentation": {
+          "group": "9-student",
+          "order": 1
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}:${workspaceFolder}/tools",
+          "LD_LIBRARY_PATH": "${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cudnn/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cublas/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/curand/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cufft/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cusparse/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/nvjitlink/lib:${env:LD_LIBRARY_PATH}",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "OMP_NUM_THREADS": "8",
+          "MKL_NUM_THREADS": "8",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "9b. STUDENT session - the exported ONNX: same render, compared with 9a",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/distill/student_session.py",
+        "args": [
+          "--onnx",
+          "outputs/student_export/student_r4_small_avg.onnx",
+          "--scene",
+          "0",
+          "--gpu",
+          "0",
+          "--out",
+          "outputs/student_session",
+          "--gif",
+          "assets/nuscenes_session_student.gif",
+          "--compare",
+          "outputs/student_session_pytorch"
+        ],
+        "presentation": {
+          "group": "9-student",
+          "order": 2
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}:${workspaceFolder}/tools",
+          "LD_LIBRARY_PATH": "${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cudnn/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cublas/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/curand/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cufft/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cusparse/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/nvjitlink/lib:${env:LD_LIBRARY_PATH}",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "OMP_NUM_THREADS": "8",
+          "MKL_NUM_THREADS": "8",
+          "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+        }
+      },
+      {
+        "name": "9c. STUDENT session - rebuild only the GIF from rendered frames",
+        "type": "debugpy",
+        "request": "launch",
+        "stopOnEntry": true,
+        "justMyCode": true,
+        "program": "${workspaceFolder}/distill/student_session.py",
+        "args": [
+          "--gif-only",
+          "--out",
+          "outputs/student_session",
+          "--gif",
+          "assets/nuscenes_session_student.gif"
+        ],
+        "presentation": {
+          "group": "9-student",
+          "order": 3
+        },
+        "console": "integratedTerminal",
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}:${workspaceFolder}/tools",
+          "LD_LIBRARY_PATH": "${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cudnn/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cublas/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/curand/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cufft/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/cusparse/lib:${workspaceFolder}/.venv/lib/python3.12/site-packages/nvidia/nvjitlink/lib:${env:LD_LIBRARY_PATH}",
+          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+          "OMP_NUM_THREADS": "8",
+          "MKL_NUM_THREADS": "8",
           "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
         }
       }

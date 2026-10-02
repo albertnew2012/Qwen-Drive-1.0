@@ -74,7 +74,7 @@ and `ranks` is already the flattened output index — chunked so the `[points, 2
 intermediate stays bounded, accumulating in fp32 and casting back to
 `promote_types(feats, depth)` to match the CUDA return dtype.
 
-**That is the only modification to the repository.** Everything else lives in `local/`.
+**That is the only modification to the repository.** Everything else lives in `tools/`.
 
 ### Verifying it
 
@@ -83,7 +83,7 @@ transcription of the CUDA kernel** — a literal nested loop over
 `voxel_pool_depth_forward_all_kernel`:
 
 ```bash
-PYTHONPATH=src python local/test_voxel_pool_cpu.py
+PYTHONPATH=src python tools/test_voxel_pool_cpu.py
 ```
 
 ```
@@ -101,7 +101,7 @@ the op must **accumulate** rather than overwrite. An `index_add_` does; a naive
 
 ## 3. The dtype trap (measured, not guessed)
 
-`local/bench_dtype.py`, 12 threads, VLM prefill:
+`tools/bench_dtype.py`, 12 threads, VLM prefill:
 
 | | prefill 256 | prefill 1024 | decode 1 token |
 |---|---|---|---|
@@ -156,7 +156,7 @@ Hence the split used here:
 | **perception** | **float32** | the head *ships* as fp32; nothing in that path reproduces bf16 rounding, and it is 3× faster |
 
 Quantifying the planner's fp32 delta is a one-command experiment once the GPU is free:
-run `local/run_planning_demo.py` twice and diff the ADE. It is listed as an open question in
+run `tools/run_planning_demo.py` twice and diff the ADE. It is listed as an open question in
 [`00_START_HERE.md`](00_START_HERE.md).
 
 ---
@@ -173,12 +173,12 @@ export PATH="$PWD/.venv/bin:$PATH"      # torch shells out to `ninja` to build t
 export CUDA_HOME=/usr                   # for those same kernels
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-python local/run_planning_demo.py   --modes direct,reasoning --output outputs/planning_demo
-python local/run_perception_demo.py --output outputs/perception_demo
-python local/run_vqa_probe.py --max-new-tokens 400 --repetition-penalty 1.05
-python local/make_video.py --output outputs/qwen_drive_demo.mp4
+python tools/run_planning_demo.py   --modes direct,reasoning --output outputs/planning_demo
+python tools/run_perception_demo.py --output outputs/perception_demo
+python tools/run_vqa_probe.py --max-new-tokens 400 --repetition-penalty 1.05
+python tools/make_video.py --output outputs/qwen_drive_demo.mp4
 
-bash local/run_all.sh                   # all of the above; DEVICE=cpu still works
+bash tools/run_all.sh                   # all of the above; DEVICE=cpu still works
 ```
 
 ### Three things that had to be fixed to get onto the GPU
@@ -206,11 +206,11 @@ bash local/run_all.sh                   # all of the above; DEVICE=cpu still wor
 
 ### The CPU path still exists, and is worth keeping
 
-`--device cpu` still works on every script, and `DEVICE=cpu bash local/run_all.sh` still runs
+`--device cpu` still works on every script, and `DEVICE=cpu bash tools/run_all.sh` still runs
 the whole pipeline without a GPU. It is no longer in the launch configs, but it is what made
 this repository usable while the card was busy, and the two torch fallbacks it needs
 (`multi_scale_deformable_attn_pytorch` upstream, `_voxel_pool_depth_torch` added here) are
-still in place and still verified by `local/test_voxel_pool_cpu.py`.
+still in place and still verified by `tools/test_voxel_pool_cpu.py`.
 
 **It is not numerically identical to the GPU path**, and the difference is not small - see
 [`04_RESULTS.md`](04_RESULTS.md) for the side by side. CPU ran fp32 with torch fallbacks; GPU
@@ -232,7 +232,7 @@ the **bash wrapper** as well as python, and the threads do not exist until torch
 them up, so renice a few seconds *after* launch.
 
 ```bash
-PID=$(pgrep -f "python -u local/run_planning_demo" | head -1)
+PID=$(pgrep -f "python -u tools/run_planning_demo" | head -1)
 renice -n 19 -p $PID
 for t in $(ls /proc/$PID/task); do renice -n 19 -p $t; done
 taskset -apc 4-11,16-23 $PID          # leave physical cores 0-3 for the trainer
@@ -242,7 +242,7 @@ On this box cpu `i` and cpu `i+12` are the two SMT threads of physical core `i`,
 `4-11,16-23` reserves cores 0-3 entirely. After renice + taskset the sweep returned to its
 baseline epoch time and stayed there for 30 consecutive epochs.
 
-[`local/launch_protected.sh`](../local/launch_protected.sh) does all of this for any command.
+[`tools/launch_protected.sh`](../tools/launch_protected.sh) does all of this for any command.
 
 **Watch memory too.** bf16 planning peaks at ~11 GB RSS, fp32 perception at ~19 GB. Either
 alone is fine against 78 GB; both at once took free RAM down to 11 GB. A watchdog that kills
@@ -252,7 +252,7 @@ insurance.
 ## 6. Files added by this setup
 
 ```
-local/
+tools/
 ├── anatomy.py              parameter tree from the safetensors headers, no GPU
 ├── token_layout.py         measured prompt composition for both input types
 ├── bench_dtype.py          the bf16/fp32 table in §3
