@@ -1486,7 +1486,7 @@
       // export_onnx/env_gpu.sh so onnxruntime finds CUDA/cuDNN in torch's nvidia wheels;
       // without it ORT silently falls back to CPU (~9 s per frame).
       {
-        "name": "9a. STUDENT session - PyTorch checkpoint: render, then export to ONNX",
+        "name": "9a. STUDENT session (release v8) - PyTorch checkpoint: render, then export to ONNX",
         "type": "debugpy",
         "request": "launch",
         "stopOnEntry": true,
@@ -1494,17 +1494,17 @@
         "program": "${workspaceFolder}/distill/student_session.py",
         "args": [
           "--ckpt",
-          "outputs/student_release_v6/student_r4_small_avg.pt",
+          "outputs/student_release_v8/student_r8_occ_a_cb.pt",
           "--scene",
           "0",
           "--gpu",
           "0",
           "--out",
-          "outputs/student_session_pytorch",
+          "outputs/student_session_pytorch_v8",
           "--gif",
-          "outputs/student_session_pytorch/nuscenes_session_student_pytorch.gif",
+          "outputs/student_session_pytorch_v8/nuscenes_session_student_pytorch_v8.gif",
           "--export-onnx",
-          "outputs/student_export/student_r4_small_avg.onnx"
+          "outputs/student_export/student_r8_occ_a_cb.onnx"
         ],
         "presentation": {
           "group": "9-student",
@@ -1523,7 +1523,7 @@
         }
       },
       {
-        "name": "9b. STUDENT session - the exported ONNX: same render, compared with 9a",
+        "name": "9b. STUDENT session (release v8) - the exported ONNX: same render, compared with 9a",
         "type": "debugpy",
         "request": "launch",
         "stopOnEntry": true,
@@ -1531,17 +1531,17 @@
         "program": "${workspaceFolder}/distill/student_session.py",
         "args": [
           "--onnx",
-          "outputs/student_export/student_r4_small_avg.onnx",
+          "outputs/student_export/student_r8_occ_a_cb.onnx",
           "--scene",
           "0",
           "--gpu",
           "0",
           "--out",
-          "outputs/student_session",
+          "outputs/student_session_v8",
           "--gif",
-          "assets/nuscenes_session_student.gif",
+          "assets/nuscenes_session_student_v8.gif",
           "--compare",
-          "outputs/student_session_pytorch"
+          "outputs/student_session_pytorch_v8"
         ],
         "presentation": {
           "group": "9-student",
@@ -1569,9 +1569,9 @@
         "args": [
           "--gif-only",
           "--out",
-          "outputs/student_session",
+          "outputs/student_session_v8",
           "--gif",
-          "assets/nuscenes_session_student.gif"
+          "assets/nuscenes_session_student_v8.gif"
         ],
         "presentation": {
           "group": "9-student",

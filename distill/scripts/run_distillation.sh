@@ -16,14 +16,18 @@
 #   average   average the fine-tune's last-quarter checkpoints
 #   evaluate  250-frame check + all 4,452 val frames (two scene folds) for the fine-tune's final and averaged
 #             weights, pick the better one; official nuScenes mAP/NDS on it
+#   occupancy on the chosen checkpoint, train a new occupancy head on Occ3D's native grid (the teacher's format)
+#             alone, everything else frozen, fit per-class logit offsets on held-out frames, score it (release v8 recipe)
 #   release   checkpoint + ONNX + chunks (make_release.sh), then the real-frame loop timing
 #   demo      the nuscenes_session.gif render with the released ONNX
 #
 # Settings (environment variables):
-#   NAME=v7            experiment name: outputs/distill/exp/<NAME>_base, <NAME>_ft, outputs/student_release_<NAME>
+#   NAME=p1            experiment name: outputs/distill/exp/<NAME>_base, <NAME>_ft, <NAME>_occ, outputs/student_release_<NAME>
+#                      (p = pipeline run; v1-v8 are the hand-made releases, never reuse those names)
 #   GPUS=0,1,2,3       GPUs for training and parallel evaluation
 #   BATCH=auto         per-GPU batch; auto = 4 on GPUs with >=100 GB, else 2 (batch 2 is not validated at full length)
 #   BASE_STEPS=75000   FT_STEPS=10000   SNAP_EVERY=10000
+#   OCC_STEPS=8000     OCC_WOUT=1.0       OCC_GPUS=first two of GPUS (the validated setting: 2 GPUs x batch 4)
 #   FRAMES=data/distill/frames   TEACHER=data/distill/teacher   NUSC_ROOT=data/nuscenes
 #   EVAL_LIMIT=0       0 = full evaluation sets; N = first N frames (smoke tests only)
 #   OFFICIAL=1  DEMO=1 set to 0 to skip the official nuScenes eval / the demo render
@@ -32,18 +36,19 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 ROOT=$PWD
 
-NAME=${NAME:-v7}; GPUS=${GPUS:-0,1,2,3}; BATCH=${BATCH:-auto}
+NAME=${NAME:-p1}; GPUS=${GPUS:-0,1,2,3}; BATCH=${BATCH:-auto}
 BASE_STEPS=${BASE_STEPS:-75000}; FT_STEPS=${FT_STEPS:-10000}; SNAP_EVERY=${SNAP_EVERY:-10000}
 FRAMES=${FRAMES:-data/distill/frames}; TEACHER=${TEACHER:-data/distill/teacher}; NUSC_ROOT=${NUSC_ROOT:-data/nuscenes}
 EVAL_LIMIT=${EVAL_LIMIT:-0}; OFFICIAL=${OFFICIAL:-1}; DEMO=${DEMO:-1}
 BASE=${NAME}_base; FT=${NAME}_ft; EXP=outputs/distill/exp; LOGS=outputs/logs/distillation_${NAME}
-STAGES=(prep base select finetune average evaluate release demo)
+OCC_STEPS=${OCC_STEPS:-8000}; OCC_WOUT=${OCC_WOUT:-1.0}; OCC=${NAME}_occ
+STAGES=(prep base select finetune average evaluate occupancy release demo)
 
 FROM=prep; ONLY=""; DRY=0
 while [ $# -gt 0 ]; do
   case $1 in
     --from) FROM=$2; shift 2;; --only) ONLY=$2; shift 2;; --dry-run) DRY=1; shift;;
-    -h|--help) sed -n '2,34p' "$0"; exit 0;;
+    -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d'; exit 0;;
     *) echo "unknown argument $1"; exit 2;;
   esac
 done
@@ -52,7 +57,8 @@ export PYTHONPATH=src:.:tools PATH="$ROOT/.venv/bin:$PATH" TOKENIZERS_PARALLELIS
 [ -f export_onnx/env_gpu.sh ] && source export_onnx/env_gpu.sh
 PY=.venv/bin/python
 IFS=, read -r -a GPU_LIST <<< "$GPUS"; NPROC=${#GPU_LIST[@]}; G0=${GPU_LIST[0]}
-mkdir -p "$LOGS"
+OCC_GPUS=${OCC_GPUS:-$G0${GPU_LIST[1]:+,${GPU_LIST[1]}}}
+[ "$DRY" = 1 ] || mkdir -p "$LOGS"
 say() { echo "[$(date '+%m-%d %H:%M:%S')] $*"; }
 run() { echo "+ $*"; [ "$DRY" = 1 ] || "$@"; }
 logged() { local log=$1; shift; echo "+ $* > $log"; [ "$DRY" = 1 ] || "$@" > "$log" 2>&1; }
@@ -91,7 +97,7 @@ train() {  # train OUT STEPS EXTRA...   (resumes automatically from OUT/student.
     --center-min-radius 2 --classes nuscenes10 --split scene-all --velocity --cbgs --ema 0.999 --cam-flip \
     --temporal --occ-gt occ3d --image-size 1152 640 --history 3 --batch "$BATCH" --workers 12 \
     --snap-every "$SNAP_EVERY" --frames "$FRAMES" --teacher "$TEACHER" --steps "$steps" --out "$out" "$@" \
-    2>&1 | tee -a "$LOGS/$(basename "$out")_train.log" || true
+    2>&1 | { if [ "$DRY" = 1 ]; then cat; else tee -a "$LOGS/$(basename "$out")_train.log"; fi; } || true
   [ "$DRY" = 1 ] || [ "$(ckstep "$out/student.pt")" = "$steps" ] || { say "training stopped before step $steps: rerun to resume"; exit 3; }
 }
 
@@ -129,6 +135,7 @@ PY
     run $PY distill/occ3d_labels.py --split train --frames "$FRAMES" --teacher "$TEACHER"
     run $PY distill/occ3d_labels.py --split val --frames "$FRAMES" --teacher "$TEACHER"
   fi
+  [ -f data/distill/occ3d_native_freq.npy ] || run $PY distill/occ3d_native_labels.py --frames "$FRAMES" --workers 32
   [ -f data/distill/temporal_index.json ] || run $PY distill/build_temporal_index.py --root "$NUSC_ROOT" --version v1.0-trainval
   if [ ! -f data/distill/scene_split.json ]; then
     say "  writing data/distill/scene_split.json (eval250 will NOT match the original fixed list)"
@@ -240,6 +247,36 @@ PY
   fi
 fi
 
+# ------------------------------------------------------------------ occupancy
+OCC_CK=$EXP/$OCC/student.pt
+OCC_FIT=$EXP/$OCC/student_classbias.pt        # the trained head + per-class logit offsets: what is released
+if want occupancy; then
+  [ "$DRY" = 1 ] && SRC=$EXP/$FT/student_avg.pt || SRC=$($PY -c "import json;print(json.load(open('$CHOSEN_JSON'))['checkpoint'])")
+  say "== occupancy: native-grid occupancy head on $SRC -> $EXP/$OCC (${OCC_STEPS} steps, unobserved weight $OCC_WOUT, GPUs $OCC_GPUS)"
+  if [ ! -f "$OCC_CK" ]; then         # seed: the chosen weights at step 0; the new head starts from its init
+    run mkdir -p "$EXP/$OCC"
+    [ "$DRY" = 1 ] || $PY -c "import torch; ck = torch.load('$SRC', map_location='cpu'); \
+torch.save({'model': ck.get('ema') or ck['model'], 'cfg': ck['cfg'], 'step': 0, 'note': 'seed from $SRC'}, '$OCC_CK')"
+  fi
+  if [ "$(ckstep "$OCC_CK")" != "$OCC_STEPS" ]; then
+    ON=$(echo "$OCC_GPUS" | tr ',' '\n' | wc -l)
+    CUDA_VISIBLE_DEVICES=$OCC_GPUS OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 run .venv/bin/torchrun --nproc_per_node="$ON" --master_port=$((29750 + G0)) distill/train_student.py \
+      --det-objective center --det-head center --ref-points off --center-hidden 128 --center-blocks 3 --center-min-radius 2 \
+      --classes nuscenes10 --split scene-all --velocity --ema 0.999 --cam-flip --temporal --occ-gt occ3d \
+      --image-size 1152 640 --history 3 --batch 4 --workers 10 --frames "$FRAMES" --teacher "$TEACHER" \
+      --occ-grid native --occ-3d-channels 16 --occ-ctx-channels 256 --train-only occ_head \
+      --occ-outside-weight "$OCC_WOUT" --occ-class-exp 0.45 --lr 1e-3 --steps "$OCC_STEPS" --snap-every 2000 --out "$EXP/$OCC" \
+      2>&1 | { if [ "$DRY" = 1 ]; then cat; else tee -a "$LOGS/${OCC}_train.log"; fi; } || true
+    [ "$DRY" = 1 ] || [ "$(ckstep "$OCC_CK")" = "$OCC_STEPS" ] || { say "occupancy training stopped early: rerun to resume"; exit 3; }
+  fi
+  if [ ! -f "$OCC_FIT" ]; then        # ten per-class logit offsets on 200 held-out fold-A frames (outside eval250)
+    CUDA_VISIBLE_DEVICES=$G0 logged "$LOGS/${OCC}_bias_fit.log" $PY distill/occ_bias_fit.py --ckpt "$OCC_CK" --write "$OCC_FIT" \
+      --frames "$FRAMES" --teacher "$TEACHER"
+  fi
+  diag "$G0" "$OCC_FIT" "$OCC-final" scene
+  [ "$DRY" = 1 ] || grep -E "OCCUPANCY on|occupied voxels" "$LOGS/$OCC-final.log" | tail -2
+fi
+
 # ------------------------------------------------------------------ release
 REL=outputs/student_release_$NAME
 if want release; then
@@ -247,6 +284,8 @@ if want release; then
   if [ -d "$REL" ] && [ -n "$(ls -A "$REL" 2>/dev/null)" ]; then say "  $REL exists: kept"
   else
     [ "$DRY" = 1 ] && CHOSEN=$EXP/$FT/student_avg.pt || CHOSEN=$($PY -c "import json;print(json.load(open('$CHOSEN_JSON'))['checkpoint'])")
+    # the occupancy stage's result, when it finished, is the same model with the native-grid occupancy head
+    if [ "$DRY" = 1 ] || [ -f "$OCC_FIT" ]; then CHOSEN=$OCC_FIT; fi
     run distill/scripts/make_release.sh "$CHOSEN" "$NAME" "$REL" "$G0"
     CUDA_VISIBLE_DEVICES=$G0 logged "$LOGS/loop_timing.log" $PY distill/run_stateful.py --ckpt "$CHOSEN" \
       --onnx "$REL/student_$NAME.onnx" --gpu 0 --frames 40 || true

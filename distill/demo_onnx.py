@@ -79,7 +79,7 @@ def main() -> int:
     ap.add_argument("--out", default="outputs/demo_onnx")
     ap.add_argument("--thr", type=float, default=0.4)
     ap.add_argument("--calib", default="", help="json of per-class score thresholds {class_index: thr} (diagnose.py --write-calib); overrides --thr per class")
-    ap.add_argument("--occ-mask-dir", default="", help="frames dir holding <token>/occ3d.npz: draw occupancy only inside the Occ3D camera-visible mask (the benchmark's evaluation region)")
+    ap.add_argument("--occ-mask-dir", default="", help="frames dir holding <token>/occ3d_native.npz: draw occupancy only inside the Occ3D camera-visible mask (the benchmark's evaluation region)")
     ap.add_argument("--dump-occ", action="store_true", help="save each frame's occupancy argmax (uint8 200x200x16) next to its PNG")
     ap.add_argument("--fps", type=float, default=2.0)
     ap.add_argument("--gpu", type=int, default=0, help="CUDA device for onnxruntime; -1 = CPU")
@@ -90,7 +90,7 @@ def main() -> int:
     import onnxruntime as ort
     from nuscenes.nuscenes import NuScenes
     from nuscenes_session import SessionFrame, render_session_frame, ego_track
-    from distill.geometry import bev_indices_all
+    from distill.geometry import bev_indices_all, occ_to_native
     from distill.temporal import warp_grid_from_T
 
     so = ort.SessionOptions(); so.log_severity_level = 3
@@ -98,6 +98,7 @@ def main() -> int:
     s = ort.InferenceSession(args.onnx, so, providers=providers)
     dev = "cuda" if args.gpu >= 0 and "CUDAExecutionProvider" in s.get_providers() else "cpu"
     shapes = {i.name: i.shape for i in s.get_inputs()}
+    occ_grid = s.get_modelmeta().custom_metadata_map.get("occ_grid", "bev")    # graphs before round 8 carry none: bev
     _, n_cams, _, H, W = shapes["image"]
     L = shapes["bev_index"][0]; hf, wf = H // 16, W // 16
     depth_bins = L // (n_cams * hf * wf)
@@ -178,10 +179,10 @@ def main() -> int:
 
         sc = 1 / (1 + np.exp(-outs["cls"][0].astype(np.float64))); scores = sc.max(-1); labels = sc.argmax(-1)
         keep = scores >= (thr_per_class[labels] if thr_per_class is not None else args.thr)
-        occ_pred = outs["occ"][0].argmax(-1).astype(np.uint8)
+        occ_pred = occ_to_native(outs["occ"][0].argmax(-1).astype(np.uint8), occ_grid, PC_RANGE)   # the renderer's (x, y, z) grid
         occ_note = None
         if args.occ_mask_dir:
-            mp = Path(args.occ_mask_dir) / smp["token"] / "occ3d.npz"
+            mp = Path(args.occ_mask_dir) / smp["token"] / "occ3d_native.npz"
             if mp.exists():
                 occ_pred = occ_pred.copy(); occ_pred[np.load(mp)["mask"] == 0] = 9          # 9 = empty: outside the visible region nothing is drawn
                 occ_note = "camera-visible region"

@@ -121,7 +121,7 @@ def main() -> int:
     from nuscenes.nuscenes import NuScenes
     from nuscenes_session import (SessionFrame, render_session_frame, ego_track, sensor_chain, _nearest,
                                   interp_global_anns)
-    from distill.geometry import bev_indices_all
+    from distill.geometry import bev_indices_all, occ_to_native
     from distill.temporal import warp_grid_from_T
 
     OUT_NAMES = ["cls", "box", "occ", "seg", "trajectory", "bev_state"]
@@ -146,6 +146,7 @@ def main() -> int:
                 torch.cuda.synchronize(tdev)
             return {n: x.float().cpu().numpy() for n, x in zip(OUT_NAMES, o)}
         backend, tag = f"PyTorch checkpoint {args.ckpt} (step {ck.get('step')}) on {tdev}", "student PyTorch"
+        occ_grid = getattr(mcfg, "occ_grid", "bev")
     else:                                           # ---- ONNX graph, onnxruntime only
         import onnxruntime as ort
         if not Path(args.onnx).exists():
@@ -161,13 +162,14 @@ def main() -> int:
         C, bev = pb_shape[-3], pb_shape[-1]
         depth_range, pc_range = DEPTH_RANGE, PC_RANGE
         out_names = [o.name for o in s.get_outputs()]
+        occ_grid = s.get_modelmeta().custom_metadata_map.get("occ_grid", "bev")   # graphs before round 8 carry none: bev
 
         def run(feeds):
             return dict(zip(out_names, s.run(out_names, feeds)))
         backend, tag = f"ONNX graph {args.onnx}, onnxruntime on {dev}", "student ONNX"
     cfg = SimpleNamespace(image_size=(W, H), depth_bins=depth_bins, depth_range=depth_range, bev_size=bev,
                           pc_range=pc_range, n_cams=n_cams)
-    print(f"  {backend}: {W}x{H}, {n_cams} cams, BEV {bev}, history K={K}", flush=True)
+    print(f"  {backend}: {W}x{H}, {n_cams} cams, BEV {bev}, history K={K}, occupancy grid {occ_grid}", flush=True)
 
     # ---- the teacher render's instants, verbatim (tools/nuscenes_session.py main) ----
     nusc = NuScenes(version=args.version, dataroot=args.dataroot, verbose=False)
@@ -245,7 +247,8 @@ def main() -> int:
         keep = scores >= args.thr
         result = {"boxes": boxes_for_renderer(outs["box"][0][keep], frame.lidar2ego),
                   "scores": scores[keep].astype(np.float32), "labels": GROUP10[labels[keep]],
-                  "occ": outs["occ"][0].argmax(-1).astype(np.uint8), "map": outs["seg"][0].argmax(0).astype(np.uint8)}
+                  "occ": occ_to_native(outs["occ"][0].argmax(-1).astype(np.uint8), occ_grid, pc_range),
+                  "map": outs["seg"][0].argmax(0).astype(np.uint8)}
         traj = outs["trajectory"][0][None]
         err = np.linalg.norm(traj[0][:, :2] - fut[:, :2], axis=-1)
         path_len = float(np.linalg.norm(np.diff(traj[0][:, :2], axis=0), axis=1).sum())

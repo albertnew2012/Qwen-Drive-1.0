@@ -237,6 +237,14 @@ def main() -> int:
     # for the student AND the teacher, inside the camera-visible mask -- the honest yardstick
     Co = cfg.occ_num_classes
     o3_n = 0; o3_i_s = np.zeros(Co); o3_u_s = np.zeros(Co); o3_i_t = np.zeros(Co); o3_u_t = np.zeros(Co)
+    # the same on Occ3D's NATIVE grid (occ3d_native.npz: 0.4 m, +-40 m, (x, y, z)) -- the teacher's own format and
+    # the benchmark's. A bev-grid student (0.512 m, (y, x)) is looked up at each native cell centre.
+    on_n = 0; on_i_s = np.zeros(Co); on_u_s = np.zeros(Co); on_i_t = np.zeros(Co); on_u_t = np.zeros(Co)
+    on_cnt = np.zeros(5)      # student occ outside / inside the visible mask, teacher outside / inside, GT inside
+    on_g = np.zeros(Co)       # GT voxels per class in the visible region: the mIoU averages over classes present in the GT
+    _o = -40.0 + (np.arange(200) + 0.5) * 0.4
+    _si = np.clip(np.floor((_o - cfg.pc_range[0]) / ((cfg.pc_range[3] - cfg.pc_range[0]) / cfg.bev_size)).astype(int), 0, cfg.bev_size - 1)
+    native_student = getattr(cfg, "occ_grid", "bev") == "native"
 
     with torch.no_grad():
         for i in range(len(ds)):
@@ -303,9 +311,11 @@ def main() -> int:
                     k = nms(xy, lb, conf[sel], args.nms); xy, lb = xy[k], lb[k]
                 a, bb, c, _, _ = greedy_match(xy, (GROUP10[lb] if ten else lb), gxy, glb_m)
                 cal_tp += a; cal_fp += bb; cal_fn += c
-            # --- occupancy vs Occ3D GT where available
+            # --- LEGACY occupancy vs Occ3D GT resampled onto the student's 0.512 m (y, x) grid (occ3d.npz). Only means
+            # something for a bev-grid student; the teacher's number here is an artefact (its native grid compared
+            # against student-grid labels). The occ_native block below is the real metric.
             f3 = Path(args.frames) / toks[i] / "occ3d.npz"
-            if f3.exists():
+            if f3.exists() and not native_student:
                 o3 = np.load(f3); gt3 = o3["occ"].astype(np.int64); m3 = o3["mask"] > 0
                 ps = pocc[0].float().argmax(-1).cpu().numpy(); pt_ = b["occ"].numpy().astype(np.int64)
                 for c_ in range(Co):
@@ -314,6 +324,20 @@ def main() -> int:
                     o3_i_s[c_] += (g & a_s).sum(); o3_u_s[c_] += (g | a_s).sum()
                     o3_i_t[c_] += (g & a_t).sum(); o3_u_t[c_] += (g | a_t).sum()
                 o3_n += 1
+            fn_ = Path(args.frames) / toks[i] / "occ3d_native.npz"
+            if fn_.exists() and (Path(args.teacher) / f"{toks[i]}.npz").exists():
+                on = np.load(fn_); gtn = on["occ"].astype(np.int64); mn = on["mask"] > 0
+                ps_ = pocc[0].float().argmax(-1).cpu().numpy()
+                psn = ps_ if native_student else ps_[_si[None, :], _si[:, None], :]     # -> (x, y, z)
+                tn = b["occ"].numpy().astype(np.int64)                                 # teacher: native, (x, y, z)
+                for c_ in range(Co - 1):
+                    g = (gtn == c_) & mn; on_g[c_] += g.sum()
+                    a_s = (psn == c_) & mn; a_t = (tn == c_) & mn
+                    on_i_s[c_] += (g & a_s).sum(); on_u_s[c_] += (g | a_s).sum()
+                    on_i_t[c_] += (g & a_t).sum(); on_u_t[c_] += (g | a_t).sum()
+                ems, emt = psn != Co - 1, tn != Co - 1
+                on_cnt += [(ems & ~mn).sum(), (ems & mn).sum(), (emt & ~mn).sum(), (emt & mn).sum(), ((gtn != Co - 1) & mn).sum()]
+                on_n += 1
             # --- occupancy / map, predicted vs teacher distribution
             po = pocc[0].argmax(-1).cpu().numpy().reshape(-1); to = b["occ"].numpy().reshape(-1)
             occ_p += np.bincount(po, minlength=cfg.occ_num_classes)
@@ -381,9 +405,23 @@ def main() -> int:
                  "retained_pct": 100.0 * ms_ / max(mt_, 1e-9),
                  "per_class_student": [round(float(o3_i_s[c_] / max(o3_u_s[c_], 1)), 4) for c_ in range(Co)],
                  "per_class_teacher": [round(float(o3_i_t[c_] / max(o3_u_t[c_], 1)), 4) for c_ in range(Co)]}
+    occ_native = None
+    if on_n:
+        keep_n = [c_ for c_ in range(Co - 1) if on_g[c_] > 0]      # Occ3D convention: classes present in the labels
+        msn = float(np.mean([on_i_s[c_] / max(on_u_s[c_], 1) for c_ in keep_n]))
+        mtn = float(np.mean([on_i_t[c_] / max(on_u_t[c_], 1) for c_ in keep_n]))
+        avg = on_cnt / on_n
+        occ_native = {"frames": on_n, "student_miou": msn, "teacher_miou": mtn, "retained_pct": 100.0 * msn / max(mtn, 1e-9),
+                      "student_grid": "native" if native_student else "bev, looked up on the native grid",
+                      "classes_scored": [int(c_) for c_ in keep_n],
+                      "per_class_student": [round(float(on_i_s[c_] / max(on_u_s[c_], 1)), 4) for c_ in range(Co - 1)],
+                      "per_class_teacher": [round(float(on_i_t[c_] / max(on_u_t[c_], 1)), 4) for c_ in range(Co - 1)],
+                      "student_occupied_outside": float(avg[0]), "student_occupied_inside": float(avg[1]),
+                      "teacher_occupied_outside": float(avg[2]), "teacher_occupied_inside": float(avg[3]),
+                      "gt_occupied_inside": float(avg[4])}
     rec = {
         "tag": args.tag, "note": args.note, "step": step, "ckpt": args.ckpt,
-        "occ3d": occ3d,
+        "occ3d": occ3d, "occ_native": occ_native,
         "at": time.strftime("%Y-%m-%d %H:%M:%S"), "frames": len(ds),
         "nms_radius_m": args.nms,
         "teacher_vs_gt": {"recall": tr, "precision": tp_, "f1": tf},
@@ -441,8 +479,15 @@ def main() -> int:
     if cal is not None:
         print(f"  STUDENT per-class thresholds (calibrated elsewhere): recall {cal[0]:6.1%} precision {cal[1]:6.1%} "
               f"F1 {cal[2]:6.1%}   -> {100*cal[2]/max(tf,1e-9):.1f}% of teacher")
+    if occ_native:
+        o = occ_native
+        print(f"  OCCUPANCY on Occ3D's native grid ({o['frames']} frames; student grid: {o['student_grid']}): "
+              f"visible-voxel mIoU student {o['student_miou']:.1%}  teacher {o['teacher_miou']:.1%}  -> {o['retained_pct']:.0f}% of teacher")
+        print(f"    occupied voxels per frame  outside the camera-visible region: student {o['student_occupied_outside']:.0f}  "
+              f"teacher {o['teacher_occupied_outside']:.0f} | inside: student {o['student_occupied_inside']:.0f}  "
+              f"teacher {o['teacher_occupied_inside']:.0f}  ground truth {o['gt_occupied_inside']:.0f}")
     if occ3d:
-        print(f"  occupancy vs Occ3D GT ({occ3d['frames']} frames, camera-visible voxels, mIoU over non-empty classes): "
+        print(f"  LEGACY occupancy on the student's 0.512 m grid ({occ3d['frames']} frames; teacher figure is a grid-mismatch artefact): "
               f"student {occ3d['student_miou']:.1%}  teacher {occ3d['teacher_miou']:.1%}  -> {occ3d['retained_pct']:.0f}% of teacher")
     print("  recall by range     " + "".join(f"{n:>8}" for n in RANGE_NAMES)
           + "      (GT " + "/".join(str(int(v)) for v in rng_tot) + ")")
@@ -469,6 +514,10 @@ def main() -> int:
               f"{rec['trajectory_beats_probe']}")
 
     NOTEBOOK.parent.mkdir(parents=True, exist_ok=True)
+    # parallel evaluations append to the same file: read-modify-write under an exclusive lock, or records are lost
+    # (two scores finishing together each wrote back their own copy -- round 8 lost several that way)
+    import fcntl
+    _lock = open(str(NOTEBOOK) + ".lock", "w"); fcntl.flock(_lock, fcntl.LOCK_EX)
     book = json.loads(NOTEBOOK.read_text()) if NOTEBOOK.exists() else []
     book.append(rec)
     NOTEBOOK.write_text(json.dumps(book, indent=1))

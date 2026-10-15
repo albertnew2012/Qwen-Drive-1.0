@@ -69,6 +69,9 @@ class StudentConfig:
                  det_head: str = "query", center_hidden: int = 64,
                  center_blocks: int = 2, center_min_radius: int = 1, head_upsample: int = 1,
                  head_dilate: bool = False, occ_head: str = "conv1x1", occ_3d_channels: int = 16,
+                 occ_grid: str = "bev", occ_ctx_channels: int = 256, occ_vis: bool = False,
+                 occ_vis_thr: float = 0.0, occ_raymap: bool = False,
+                 occ_empty_bias: float = 0.0, occ_class_bias=None,
                  temporal: bool = False, velocity: bool = False, history: int = 1,
                  feat_distill: bool = False, teacher_dim: int = 1024):
         self.arch = arch
@@ -114,6 +117,37 @@ class StudentConfig:
         # real vertical context for the voxels, a few ms per frame.
         self.occ_head = occ_head
         self.occ_3d_channels = occ_3d_channels
+        # occ_grid: "bev" = occupancy on the 0.512 m detection grid over +-51.2 m, indexed (y, x) -- what every
+        # student up to release v6 produced. "native" = the TEACHER's format: Occ3D's own grid, 0.4 m cells over
+        # [-40, 40] m, indexed (x, y, z) (verified 2026-10-01 against GT boxes and the Occ3D labels). The BEV map
+        # is resampled onto that grid by a fixed grid_sample, then a 3x3 context conv, a lift into height slices
+        # and 3-D convs predict the classes. Output shape (B, 200, 200, 16, 10) is unchanged.
+        self.occ_grid = occ_grid
+        self.occ_ctx_channels = occ_ctx_channels
+        # occ_vis (native grid only): one more output channel predicts whether a voxel is camera-visible (Occ3D's
+        # camera mask), and the 3-D convs also see each voxel's (x, y, z, range). The classes are trained on visible
+        # voxels only, the visibility channel on all of them; at inference a voxel predicted unseen is set to
+        # "empty" inside the graph, so the output keeps the teacher's (B, 200, 200, 16, 10) format. This separates
+        # "what is there" from "can the cameras see it": a single head trained to call unseen space empty also
+        # empties visible space it is unsure of (r8_occ_d: visible mIoU 27% vs 34-37% without that pressure).
+        self.occ_vis = occ_vis
+        # visibility logit above which a voxel counts as camera-visible at inference. 0 = probability 0.5; visible
+        # voxels are only ~14% of the grid, so the calibrated cut is usually lower. Set after training from a sweep on
+        # held-out frames (distill/occ_vis_sweep.py) -- a config value, so no retraining.
+        self.occ_vis_thr = occ_vis_thr
+        # occ_raymap (native grid only): give the occupancy head the cameras' own visibility evidence. The lift's
+        # per-ray depth distribution (trained on lidar) says where each ray stops; splatted through the same
+        # indices as the features, it gives per BEV cell: how much ray mass passes through (observed free space),
+        # how much stops there (observed surface) and how many ray samples land there. Cells behind every surface
+        # get no passing mass -- the "cameras cannot see this" signal a head on the BEV features alone lacks.
+        # No new graph inputs; ~3 extra channels through the existing scatter.
+        self.occ_raymap = occ_raymap
+        # added to the "empty" logit at inference (native grid): a post-hoc operating point chosen on held-out frames
+        # by distill/occ_vis_sweep.py --mode empty-bias. Negative = fill more. A config value: no retraining.
+        self.occ_empty_bias = occ_empty_bias
+        # per-class logit offsets (10 numbers, empty last) added at inference: the generalisation of occ_empty_bias,
+        # fitted on held-out frames by distill/occ_bias_fit.py. None = off.
+        self.occ_class_bias = list(occ_class_bias) if occ_class_bias is not None else None
         # Temporal fusion of the previous keyframe's BEV (see temporal.py).
         self.temporal = temporal
         self.history = history      # previous keyframes fused (1 = BEVDet4D, K = long history)
@@ -254,6 +288,15 @@ class LiftSplat(nn.Module):
             idx = idx.expand(b, -1, -1)
         idx = idx.expand(-1, c, -1)
         bev = lifted.new_zeros(b, c, 2 * cells).scatter_add(2, idx, lifted)
+        if getattr(self.cfg, "occ_raymap", False):
+            # per ray sample: P(the ray reaches this depth bin) = 1 - P(it stopped in an earlier bin); P(it stops here);
+            # 1 (a sample count). Same indices as the features. Stashed like last_depth_logits: not a graph output.
+            df = d.float()
+            reach = 1.0 - df.cumsum(1) + df
+            rm = torch.stack([reach, df, torch.ones_like(df)], 1)                  # B*N, 3, D, H, W
+            rm = rm.reshape(b, n, 3, -1).permute(0, 2, 1, 3).reshape(b, 3, -1)
+            r = rm.new_zeros(b, 3, 2 * cells).scatter_add(2, idx[:, :3, :], rm)
+            self.last_raymap = r[:, :, :cells].reshape(b, 3, self.cfg.bev_size, self.cfg.bev_size)
         return bev[:, :, :cells].reshape(b, c, self.cfg.bev_size, self.cfg.bev_size)
 
 
@@ -345,7 +388,31 @@ class StudentDetector(nn.Module):
                                      hidden=cfg.center_hidden, blocks=cfg.center_blocks,
                                      reg_dims=(10 if cfg.velocity else 8),
                                      dilation=(cfg.head_upsample if getattr(cfg, "head_dilate", False) else 1))
-        if getattr(cfg, "occ_head", "conv1x1") == "conv3d":
+        if getattr(cfg, "occ_grid", "bev") == "native":
+            c3 = cfg.occ_3d_channels
+            vis = bool(getattr(cfg, "occ_vis", False)); ray = bool(getattr(cfg, "occ_raymap", False))
+            cin = c3 + (4 if (vis or ray) else 0) + (4 if ray else 0)       # + voxel coordinates, + ray-map columns
+            self.occ_head = nn.ModuleDict({
+                "ctx": conv_bn(cfg.d_model + (4 if ray else 0), cfg.occ_ctx_channels),
+                "lift": nn.Conv2d(cfg.occ_ctx_channels, cfg.occ_pillar_h * c3, 1),
+                "body": nn.Sequential(
+                    nn.Conv3d(cin, c3, 3, padding=1, bias=False), nn.BatchNorm3d(c3), nn.ReLU(inplace=True),
+                    nn.Conv3d(c3, c3, 3, padding=1, bias=False), nn.BatchNorm3d(c3), nn.ReLU(inplace=True),
+                    nn.Conv3d(c3, cfg.occ_num_classes + (1 if vis else 0), 1))})
+            if vis or ray:   # voxel centres, normalised: x/40, y/40, z (0..1 over the 16 slices), range/56.6
+                c = -40.0 + (torch.arange(200, dtype=torch.float32) + 0.5) * 0.4
+                zc = (torch.arange(cfg.occ_pillar_h, dtype=torch.float32) + 0.5) / cfg.occ_pillar_h
+                zz, xx, yy = torch.meshgrid(zc, c / 40.0, c / 40.0, indexing="ij")          # (z, x, y)
+                self.register_buffer("_occ_coords", torch.stack([xx, yy, zz, torch.sqrt(xx ** 2 + yy ** 2) / 1.415])[None],
+                                     persistent=False)                                     # (1, 4, z, x, y)
+            # output cell centres of the Occ3D grid, in grid_sample's normalised coordinates of the BEV
+            # (align_corners=False: -1 is the outer edge of the first BEV cell, i.e. pc_range[0])
+            o = (-40.0 + (torch.arange(200, dtype=torch.float32) + 0.5) * 0.4)
+            half_x = (cfg.pc_range[3] - cfg.pc_range[0]) / 2.0; half_y = (cfg.pc_range[4] - cfg.pc_range[1]) / 2.0
+            gx = (o / half_x)[:, None].expand(200, 200)          # rows of the output = x (BEV width axis)
+            gy = (o / half_y)[None, :].expand(200, 200)          # cols of the output = y (BEV height axis)
+            self.register_buffer("_occ_native_grid", torch.stack([gx, gy], -1)[None], persistent=False)
+        elif getattr(cfg, "occ_head", "conv1x1") == "conv3d":
             c3 = cfg.occ_3d_channels
             self.occ_head = nn.ModuleDict({
                 "lift": nn.Conv2d(cfg.d_model, cfg.occ_pillar_h * c3, 1),
@@ -500,6 +567,7 @@ class StudentDetector(nn.Module):
         # lives on the same (32, 56) grid. An attribute keeps it out of the traced graph.
         self.last_backbone_feat = feat
         bev_raw = self.lss(feat, bev_index, valid)
+        raymap = self.lss.last_raymap if getattr(self.cfg, "occ_raymap", False) else None   # this frame's, not history's
         # bev_state is the UNFUSED lift-splat BEV: at training the previous frame's BEV is
         # bev_from(prev images) = its lss output, so feeding this frame's lss output back
         # as prev_bev at deployment reproduces training exactly (returning the fused BEV
@@ -533,7 +601,37 @@ class StudentDetector(nn.Module):
                 box = raw
 
         # occupancy: (B, H*C, 200, 200) -> (B, 200, 200, H, C), the teacher's layout
-        if isinstance(self.occ_head, nn.ModuleDict):                # conv3d head
+        if getattr(self.cfg, "occ_grid", "bev") == "native":      # teacher format: Occ3D grid, (x, y, z)
+            g = self._occ_native_grid.expand(b, -1, -1, -1)
+            bn = F.grid_sample(bev, g, mode="bilinear", padding_mode="zeros", align_corners=False)   # (B, C, x, y)
+            if raymap is not None:
+                rn = F.grid_sample(raymap.float(), g, mode="bilinear", padding_mode="zeros", align_corners=False)
+                reach, stop, cnt = rn[:, 0:1], rn[:, 1:2], rn[:, 2:3]
+                rf = torch.cat([torch.log1p(reach), torch.log1p(stop), torch.log1p(cnt), reach / (cnt + 1.0)], 1).to(bn.dtype)
+                bn = torch.cat([bn, rf], 1)
+            f = self.occ_head["ctx"](bn)
+            v = self.occ_head["lift"](f).reshape(b, self.cfg.occ_3d_channels, self.cfg.occ_pillar_h, 200, 200)
+            if getattr(self.cfg, "occ_vis", False) or raymap is not None:
+                v = torch.cat([v, self._occ_coords.expand(b, -1, -1, -1, -1).to(v.dtype)], 1)
+            if raymap is not None:
+                v = torch.cat([v, rf[:, :, None].expand(-1, -1, self.cfg.occ_pillar_h, -1, -1).to(v.dtype)], 1)
+
+            oc = self.occ_head["body"](v)                              # (B, classes [+ visibility], z, x, y)
+            occ = oc.permute(0, 3, 4, 2, 1)                            # (B, x, y, z, classes [+ 1])
+            eb = float(getattr(self.cfg, "occ_empty_bias", 0.0)); cb = getattr(self.cfg, "occ_class_bias", None)
+            if (eb != 0.0 or cb is not None) and not self.training and not getattr(self, "occ_raw", False):
+                nc = self.cfg.occ_num_classes
+                bias = torch.tensor(list(cb) if cb is not None else [0.0] * nc, dtype=occ.dtype, device=occ.device)
+                bias = bias + torch.tensor([0.0] * (nc - 1) + [eb], dtype=occ.dtype, device=occ.device)
+                occ = torch.cat([occ[..., :nc] + bias, occ[..., nc:]], -1)
+            if getattr(self.cfg, "occ_vis", False) and not self.training and not getattr(self, "occ_raw", False):
+                # deployment: a voxel predicted unseen (visibility logit <= 0) becomes "empty" -- training sees
+                # the raw classes + visibility channel instead (train_student.py splits them)
+                nc = self.cfg.occ_num_classes
+                empty = torch.where(occ[..., nc:] > float(getattr(self.cfg, "occ_vis_thr", 0.0)), occ[..., nc - 1:nc],
+                                    torch.full_like(occ[..., nc:], 1e4))
+                occ = torch.cat([occ[..., :nc - 1], empty], -1)
+        elif isinstance(self.occ_head, nn.ModuleDict):              # conv3d head
             n = self.cfg.bev_size
             v = self.occ_head["lift"](bev).reshape(b, self.cfg.occ_3d_channels, self.cfg.occ_pillar_h, n, n)
             oc = self.occ_head["body"](v)                              # (B, C, H, y, x)

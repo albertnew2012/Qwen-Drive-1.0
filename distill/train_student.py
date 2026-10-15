@@ -51,7 +51,7 @@ class DistillSet(Dataset):
     def __init__(self, frames: Path, teacher: Path, cfg: StudentConfig, tokens=None,
                  ego: Path | None = None, feats: str = "", cam_flip: bool = False,
                  temporal: bool = False, gt_name: str = "gt_boxes.npz", min_pts: int = 0,
-                 history: int = 1, occ_gt: str = "teacher"):
+                 history: int = 1, occ_gt: str = "teacher", occ_grid: str = "bev"):
         self.feats = feats
         # Camera-flip augmentation: mirror every image AND mirror lidar2img in pixel x,
         # so the scatter indices geometry.py derives from it follow the flipped image.
@@ -69,6 +69,9 @@ class DistillSet(Dataset):
         # occ_gt="occ3d": occupancy target from Occ3D ground truth (occ3d.npz, camera-visible
         # voxels only, -100 elsewhere) where the frame has it; the teacher's grid otherwise
         self.occ_gt = occ_gt
+        # occ_grid="native": occupancy target = occ3d_native.npz (Occ3D's own 0.4 m grid, (x, y, z), the teacher's
+        # format) with the camera-visible mask returned separately, so the loss can weigh unseen space too
+        self.occ_grid = occ_grid
         # gt_boxes.npz: the 7 teacher classes; gt_boxes10.npz: the 10 nuScenes detection
         # classes (+ num_pts, so GT without a lidar/radar return can be dropped as the
         # official evaluator does)
@@ -211,7 +214,17 @@ class DistillSet(Dataset):
             has_traj = np.float32(0.0)
         has_teacher = (self.teacher / f"{tok}.npz").exists()
         occ_t = d["occ"].astype(np.int64); has_occ = has_teacher
-        if self.occ_gt == "occ3d" and (fr / "occ3d.npz").exists():
+        occ_mask = np.zeros(occ_t.shape, np.uint8)
+        if self.occ_grid == "native":
+            # the teacher's own occupancy, on the same native grid: an alternative target for the voxels the cameras
+            # cannot see (--occ-outside-target teacher); calib-only frames carry none
+            occ_teacher = d["occ"].astype(np.int8) if has_teacher else np.full((200, 200, 16), 9, np.int8)
+            fn = fr / "occ3d_native.npz"
+            if fn.exists():
+                o3 = np.load(fn); occ_t = o3["occ"].astype(np.int64); occ_mask = o3["mask"].astype(np.uint8); has_occ = True
+            else:
+                occ_t = np.full((200, 200, 16), 9, np.int64); has_occ = False
+        elif self.occ_gt == "occ3d" and (fr / "occ3d.npz").exists():
             o3 = np.load(fr / "occ3d.npz")
             occ_t = o3["occ"].astype(np.int64); occ_t[o3["mask"] == 0] = -100; has_occ = True
         gt_f = fr / self.gt_name
@@ -249,6 +262,9 @@ class DistillSet(Dataset):
                 "gt_box": torch.from_numpy(gb), "gt_label": torch.from_numpy(gl),
                 "gt_raw": torch.from_numpy(graw),
                 "occ": torch.from_numpy(occ_t),
+                "occ_mask": torch.from_numpy(occ_mask),
+                **({"occ_teacher": torch.from_numpy(occ_teacher), "has_occ_teacher": torch.tensor(np.float32(has_teacher))}
+                   if self.occ_grid == "native" else {}),
                 "seg": torch.from_numpy(d["seg"].astype(np.int64)),
                 "bev_index": torch.from_numpy(index),
                 "valid": torch.from_numpy(valid),
@@ -305,7 +321,29 @@ def cbgs_resample(frames: Path, tokens, num_classes: int, seed: int = 0, log=pri
     return out
 
 
+def lovasz_softmax(probas: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    """Lovasz-softmax (Berman et al. 2018) over the classes present: probas (P, C), labels (P,). The convex
+    surrogate of 1 - Jaccard for each class, averaged -- it trains for per-class IoU, which the occupancy mIoU is."""
+    losses = []
+    for c in range(probas.shape[1]):
+        fg = (labels == c).float()
+        if fg.sum() == 0:
+            continue
+        err, perm = torch.sort((fg - probas[:, c]).abs(), 0, descending=True)
+        fg_s = fg[perm]
+        gts = fg_s.sum()
+        inter = gts - fg_s.cumsum(0); union = gts + (1.0 - fg_s).cumsum(0)
+        jac = 1.0 - inter / union
+        grad = torch.cat([jac[:1], jac[1:] - jac[:-1]])
+        losses.append(torch.dot(err, grad))
+    return torch.stack(losses).mean() if losses else probas.sum() * 0.0
+
+
 def main() -> int:
+    # Nodes with a small system-wide file table (node 13: 131,072, shared with other users) run out of handles with
+    # the default "file_descriptor" sharing of worker tensors; TORCH_SHARING_STRATEGY=file_system avoids that.
+    if os.environ.get("TORCH_SHARING_STRATEGY"):
+        torch.multiprocessing.set_sharing_strategy(os.environ["TORCH_SHARING_STRATEGY"])
     ap = argparse.ArgumentParser()
     ap.add_argument("--frames", default="data/distill/frames")
     ap.add_argument("--teacher", default="data/distill/teacher")
@@ -328,6 +366,26 @@ def main() -> int:
     ap.add_argument("--occ-head", default="conv1x1", choices=["conv1x1", "conv3d"], help="occupancy head: original 1x1 conv, or the 3D conv head")
     ap.add_argument("--occ-3d-channels", type=int, default=16)
     ap.add_argument("--train-only", default="", help="comma-separated parameter-name prefixes to train; everything else frozen (e.g. 'occ_head')")
+    ap.add_argument("--occ-grid", default="bev", choices=["bev", "native"],
+                    help="native = occupancy on Occ3D's own 0.4 m grid in the teacher's (x, y, z) order, trained on occ3d_native.npz")
+    ap.add_argument("--occ-ctx-channels", type=int, default=256)
+    ap.add_argument("--occ-outside-weight", type=float, default=0.0,
+                    help="native grid only: weight of the cross-entropy on voxels OUTSIDE the camera-visible mask, against their "
+                         "Occ3D label (98%% free). 0 = supervise visible voxels only, which lets the head fill unseen space")
+    ap.add_argument("--occ-class-exp", type=float, default=0.45, help="exponent of the inverse-frequency occupancy class weights")
+    ap.add_argument("--occ-vis", action="store_true",
+                    help="native grid only: add a camera-visibility channel (trained on Occ3D's camera mask over all voxels) "
+                         "that sets unseen voxels to empty at inference; the classes then train on visible voxels only")
+    ap.add_argument("--occ-vis-weight", type=float, default=1.0, help="weight of the visibility BCE (with --occ-vis)")
+    ap.add_argument("--occ-outside-target", default="label", choices=["label", "teacher"],
+                    help="native grid: target of the unobserved-voxel term -- Occ3D's label (98%% free) or the TEACHER's "
+                         "occupancy (its plausible extension of visible surfaces); frames without a teacher record use the label")
+    ap.add_argument("--occ-lovasz", type=float, default=0.0,
+                    help="native grid: weight of a Lovasz-softmax term on the camera-visible voxels (a direct surrogate of "
+                         "per-class IoU, the metric); 0 = off")
+    ap.add_argument("--occ-raymap", action="store_true",
+                    help="native grid only: feed the occupancy head the lift's ray maps (depth mass passing through / "
+                         "stopping in / sampled in each cell) -- the cameras' own visibility evidence")
     ap.add_argument("--occ-outside-empty", type=float, default=0.0,
                     help="weight of a CE term pulling voxels OUTSIDE the Occ3D camera-visible mask toward 'empty' (0 = off, the r2/r3 recipe)")
     ap.add_argument("--seg-weight", type=float, default=1.0)
@@ -421,6 +479,7 @@ def main() -> int:
                         center_hidden=args.center_hidden, center_blocks=args.center_blocks,
                         center_min_radius=args.center_min_radius, head_upsample=args.head_upsample, temporal=args.temporal,
                         head_dilate=args.head_dilate, occ_head=args.occ_head, occ_3d_channels=args.occ_3d_channels,
+                        occ_grid=args.occ_grid, occ_ctx_channels=args.occ_ctx_channels, occ_vis=args.occ_vis, occ_raymap=args.occ_raymap,
                         velocity=args.velocity, image_size=tuple(args.image_size), arch=args.arch,
                         history=args.history)
     ds_all = DistillSet(Path(args.frames), Path(args.teacher), cfg, feats=args.feats)
@@ -451,7 +510,7 @@ def main() -> int:
     if args.cbgs:
         train_tokens = cbgs_resample(Path(args.frames), train_tokens, cfg.num_classes,
                                      seed=0, log=say, gt_name=gt_name)
-    train = DistillSet(Path(args.frames), Path(args.teacher), cfg, train_tokens, feats=args.feats, cam_flip=args.cam_flip, temporal=args.temporal, gt_name=gt_name, min_pts=min_pts, history=args.history, occ_gt=args.occ_gt)
+    train = DistillSet(Path(args.frames), Path(args.teacher), cfg, train_tokens, feats=args.feats, cam_flip=args.cam_flip, temporal=args.temporal, gt_name=gt_name, min_pts=min_pts, history=args.history, occ_gt=args.occ_gt, occ_grid=args.occ_grid)
     val = DistillSet(Path(args.frames), Path(args.teacher), cfg, val_tokens, feats=args.feats,
                      gt_name=gt_name, min_pts=min_pts)
     say(f"  {len(train)} train / {len(val)} val frames", flush=True)
@@ -516,7 +575,8 @@ def main() -> int:
     occ_w = torch.ones(cfg.occ_num_classes).cuda()
     # With Occ3D targets the supervised voxels are ~77% empty (vs 95.7% on the teacher's
     # grid), so the weights come from the label distribution instead (occ3d_labels.py stats).
-    freq_f = Path("data/distill/occ3d_freq.npy" if args.occ_gt == "occ3d" else "data/distill/occ_freq.npy")
+    freq_f = Path("data/distill/occ3d_native_freq.npy" if args.occ_grid == "native"
+                  else "data/distill/occ3d_freq.npy" if args.occ_gt == "occ3d" else "data/distill/occ_freq.npy")
     counts = np.zeros(cfg.occ_num_classes, np.int64)
     if freq_f.exists():
         counts = np.load(freq_f)
@@ -536,7 +596,7 @@ def main() -> int:
         # occupancy mIoU at 3.5% across two rounds. 0.45 backs that off.
         # The 1e-4 floor stops a class with ~zero voxels becoming a 1000x outlier that
         # distorts the mean, and the 4.0 cap bounds what such a class can still claim.
-        w = 1.0 / np.clip(frac, 1e-4, None) ** 0.45
+        w = 1.0 / np.clip(frac, 1e-4, None) ** args.occ_class_exp
         w = np.minimum(w / w.mean(), 4.0)
         occ_w = torch.from_numpy(w.astype(np.float32)).cuda()
         say(f"  occupancy class weights (free class {int(frac.argmax())} at "
@@ -598,6 +658,14 @@ def main() -> int:
             prm.requires_grad = name.startswith(prefixes)
             n_train += prm.numel() if prm.requires_grad else 0
         say(f"  train-only {prefixes}: {n_train/1e6:.2f} M trainable parameters, the rest frozen", flush=True)
+        # Frozen parameters are not enough: BatchNorm layers in train mode keep updating their running statistics,
+        # which is how round 7's "frozen" detection drifted (61.6% -> 61.3%). Put every BatchNorm whose
+        # parameters are frozen into eval mode; nothing in this script calls .train() afterwards.
+        n_bn = 0
+        for mod in model.modules():
+            if isinstance(mod, torch.nn.modules.batchnorm._BatchNorm) and not any(p.requires_grad for p in mod.parameters()):
+                mod.eval(); n_bn += 1
+        say(f"  {n_bn} frozen BatchNorm layers held in eval mode", flush=True)
     opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=args.lr, weight_decay=0.01)
     ema = None
     if args.ema > 0:
@@ -773,8 +841,36 @@ def main() -> int:
                     num = ls.flatten(1).sum(1)
                     # global weighted mean over the real samples == reduction="mean" when all are real
                     return (num * has).sum() / (den * has).sum().clamp_min(1e-6)
-                l_occ = masked_wce(pocc.float().permute(0, 4, 1, 2, 3), tocc, occ_w, b["has_occ"].cuda(), ignore=-100)
-                if args.occ_outside_empty > 0:
+                if args.occ_grid == "native":
+                    # visible voxels: class-weighted cross-entropy (the benchmark region); unseen voxels: plain
+                    # cross-entropy against their Occ3D label (98% free), weighted by --occ-outside-weight
+                    nc = cfg.occ_num_classes
+                    logits = pocc[..., :nc].float().permute(0, 4, 1, 2, 3)        # (B, C, x, y, z)
+                    ls = F.cross_entropy(logits, tocc, reduction="none")          # (B, x, y, z)
+                    vis = b["occ_mask"].cuda() > 0
+                    wv = occ_w[tocc] * vis
+                    l_in = (ls * wv).flatten(1).sum(1) / wv.flatten(1).sum(1).clamp_min(1e-6)
+                    out_m = (~vis).float()
+                    if args.occ_outside_target == "teacher":   # distil the teacher where Occ3D has no camera evidence
+                        hast = b["has_occ_teacher"].cuda() > 0
+                        tgt_out = torch.where(hast[:, None, None, None], b["occ_teacher"].cuda().long(), tocc)
+                        ls_o = F.cross_entropy(logits, tgt_out, reduction="none")
+                    else:
+                        ls_o = ls
+                    l_out = (ls_o * out_m).flatten(1).sum(1) / out_m.flatten(1).sum(1).clamp_min(1.0)
+                    has = b["has_occ"].cuda()
+                    l_occ_s = l_in + args.occ_outside_weight * l_out
+                    if args.occ_vis:          # the visibility channel: plain BCE against the camera mask, every voxel
+                        l_vis = F.binary_cross_entropy_with_logits(pocc[..., nc].float(), vis.float(), reduction="none").flatten(1).mean(1)
+                        l_occ_s = l_occ_s + args.occ_vis_weight * l_vis
+                    l_occ = (l_occ_s * has).sum() / has.sum().clamp_min(1.0)
+                    if args.occ_lovasz > 0:   # on the camera-visible voxels of frames with labels, the whole batch at once
+                        sel = vis & (has > 0)[:, None, None, None]
+                        pr = logits.softmax(1).permute(0, 2, 3, 4, 1)[sel]            # (P, C)
+                        l_occ = l_occ + args.occ_lovasz * lovasz_softmax(pr, tocc[sel])
+                else:
+                    l_occ = masked_wce(pocc.float().permute(0, 4, 1, 2, 3), tocc, occ_w, b["has_occ"].cuda(), ignore=-100)
+                if args.occ_outside_empty > 0 and args.occ_grid != "native":
                     # Occ3D supervises only camera-visible voxels (-100 elsewhere), so the head was
                     # free to fill the other 88% of the grid with "driveable"/"background" -- a
                     # blanket in every render. A light pull toward "empty" (class 9) out there

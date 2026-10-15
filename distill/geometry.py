@@ -65,3 +65,19 @@ def bev_indices(lidar2img: np.ndarray, lidar2ego: np.ndarray, cfg, stride: int =
     valid = (ix >= 0) & (ix < n) & (iy >= 0) & (iy < n)
     index = np.where(valid, iy * n + ix, 0).astype(np.int64)
     return index, valid
+
+
+def occ_to_native(occ: np.ndarray, grid: str = "bev", pc_range=(-51.2, -51.2, -5.0, 51.2, 51.2, 5.4)) -> np.ndarray:
+    """Occupancy argmax (200, 200, 16) in the TEACHER's format: Occ3D's grid, 0.4 m cells over +-40 m, (x, y, z).
+
+    That is what `qwen_drive_perception.visualize._panel_occupancy` draws. A native-grid student (occ_grid="native",
+    round 8 on) already predicts it. Earlier students predicted on the 0.512 m detection grid over pc_range,
+    indexed (y, x): drawn as they were, their renders came out transposed and 28% too large. Here each native
+    cell centre looks up the detection-grid cell that contains it.
+    """
+    if grid == "native":
+        return occ
+    n = occ.shape[0]
+    o = -40.0 + (np.arange(200) + 0.5) * 0.4
+    si = np.clip(np.floor((o - pc_range[0]) / ((pc_range[3] - pc_range[0]) / n)).astype(int), 0, n - 1)
+    return occ[si[None, :], si[:, None], :]

@@ -208,8 +208,11 @@ def main() -> int:
     print(f"  mAP {rec['mAP']:.4f}   NDS {rec['NDS']:.4f}")
     print("  AP per class: " + "  ".join(f"{c[:9]} {v:.3f}" for c, v in aps.items()))
     print("  TP errors: " + "  ".join(f"{k} {v:.3f}" for k, v in rec["tp_errors"].items()))
+    import fcntl                                    # parallel evaluations share the file: append under a lock
+    _lock = open(str(NOTEBOOK) + ".lock", "w"); fcntl.flock(_lock, fcntl.LOCK_EX)
     nb = json.load(open(NOTEBOOK)) if NOTEBOOK.exists() else []
     nb.append(rec); json.dump(nb, open(NOTEBOOK, "w"), indent=1)
+    fcntl.flock(_lock, fcntl.LOCK_UN); _lock.close()
     print(f"  appended to {NOTEBOOK} ({len(nb)} records)")
     return 0
 

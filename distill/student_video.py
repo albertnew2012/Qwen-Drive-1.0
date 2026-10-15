@@ -51,6 +51,7 @@ def main() -> int:
     from distill.student import StudentConfig, StudentDetector
     from distill.train_student import DistillSet
     from distill.temporal import prev_bev_from_batch, warp_from_batch
+    from distill.geometry import occ_to_native
 
     nusc = NuScenes(version="v1.0-trainval", dataroot=args.dataroot, verbose=False)
     scene = next(s for s in nusc.scene if s["name"] == args.scene)
@@ -95,7 +96,8 @@ def main() -> int:
             boxes_lidar[:, 2] -= boxes_lidar[:, 5] / 2                 # gravity centre -> bottom centre, as the head does
             result = {"boxes": boxes_lidar.cpu().numpy(), "scores": scores[keep].cpu().numpy(),
                       "labels": GROUP10[lab[keep].cpu().numpy()],
-                      "occ": pocc[0].float().argmax(-1).to(torch.uint8).cpu().numpy(),
+                      "occ": occ_to_native(pocc[0].float().argmax(-1).to(torch.uint8).cpu().numpy(),
+                                           getattr(cfg, "occ_grid", "bev"), cfg.pc_range),
                       "map": pseg[0].float().argmax(0).to(torch.uint8).cpu().numpy()}
             traj = pt[0].float().cpu().numpy()[None]
             ef = Path("data/distill/ego") / f"{tok}.npz"

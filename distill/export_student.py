@@ -96,7 +96,13 @@ def main() -> int:
                           opset_version=args.opset,
                           do_constant_folding=True, dynamo=False)
     import onnx
-    g = onnx.load(str(out), load_external_data=False).graph
+    # the occupancy output's grid travels with the graph: "native" = Occ3D's 0.4 m grid in (x, y, z), the teacher's
+    # format; "bev" = the 0.512 m detection grid in (y, x) (students up to release v6). Renderers read this.
+    m = onnx.load(str(out), load_external_data=False)
+    del m.metadata_props[:]
+    m.metadata_props.add(key="occ_grid", value=str(getattr(cfg, "occ_grid", "bev")))
+    onnx.save(m, str(out))
+    g = m.graph
     print(f"  exported {len(g.node)} nodes in {time.time()-t0:.0f}s -> {out}")
 
     if not args.bench:

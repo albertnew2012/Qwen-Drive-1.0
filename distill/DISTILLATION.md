@@ -33,22 +33,24 @@ Qwen-Drive-1.0 is about 5.7 B parameters in three parts, counted from its weight
 It runs at about 1 Hz on one GPU, dominated by the VLM prefill; in reasoning mode, token-by-token text
 generation adds more. It is not an oracle on nuScenes: against ground truth it scores detection F1 61.0%
 on all 4,452 cached val-scene frames, official mAP 0.215 / NDS 0.222 (its 7-class taxonomy cannot score
-truck, bus, trailer, construction vehicle or motorcycle), occupancy 3.2% mIoU against Occ3D, trajectory
+truck, bus, trailer, construction vehicle or motorcycle), occupancy 27% mIoU on the camera-visible voxels of
+Occ3D's own grid (older versions of this file said 3.2%: a scoring artefact, see "Occupancy, round 8"), trajectory
 ADE 1.63 m.
 
 ### 2.2 What the student is
 
-A single 54.4 M-parameter convolutional network (`distill/student.py`) that produces everything the
-teacher's perception and planning produce, in one forward pass per frame, at 27.3 Hz on one H200. It has
-no language model, no tokens and no denoising loop.
+A single 55.6 M-parameter convolutional network (`distill/student.py`) that produces everything the
+teacher's perception and planning produce, in one forward pass per frame: 27.3 Hz on one H200 (release v6),
+13.2 Hz on one A100 (releases v7 and v8; v6 runs at 14.1 Hz on the same A100). It has no language model, no tokens
+and no denoising loop.
 
-**Data flow on one page.** Measured from the release v6 checkpoint: parameter counts from its weights,
-tensor shapes traced through one forward pass at batch 1.
+**Data flow on one page.** Measured from the release v8 checkpoint (release v6 plus the round-8/9 occupancy
+head): parameter counts from its weights, tensor shapes traced through one forward pass at batch 1.
 
 ```
 ╔═══════════════════════════════════════════════════════════════════════════════════════╗
 ║                THE STUDENT — one convolutional graph, no language model               ║
-║         54.408 M params · fp32 · one 620-node ONNX graph · 27.3 Hz on one H200        ║
+║         55.586 M params · fp32 · one 650-node ONNX graph · 13.2 Hz on one A100        ║
 ╚═══════════════════════════════════════════════════════════════════════════════════════╝
 
   GRAPH INPUT, every frame              │  BUILT ON THE HOST, from calibration and ego poses
@@ -61,7 +63,7 @@ tensor shapes traced through one forward pass at batch 1.
                                         │  prev_bev   [1, 3, 384, 200, 200] last 3 states
                                         ▼
      ┌─────────────────────────────────────────────────────────────────────┐
-     │  BACKBONE  ResNet-50, ImageNet init         24.885 M  (45.74 %)     │
+     │  BACKBONE  ResNet-50, ImageNet init         24.885 M  (44.77 %)     │
      │  the 6 cameras run as one batch of 6, shared weights                │
      │  stem + layer1     256 ch  160×288   stride 4                       │
      │  layer2            512 ch   80×144   stride 8                       │
@@ -83,32 +85,33 @@ tensor shapes traced through one forward pass at batch 1.
                                         │    fed back next frame as part of prev_bev
                                         ▼
      ┌─────────────────────────────────────────────────────────────────────┐
-     │  TEMPORAL FUSE  5.309 M  (9.76 %)                                   │
+     │  TEMPORAL FUSE  5.309 M  (9.55 %)                                   │
      │  3 previous states, 0.5 / 1.0 / 1.5 s back, each grid_sample'd      │
      │  into the current ego frame by its own warp_grid                    │
      │  concat 4 × 384 = 1536 ch → 3×3 conv + BN + ReLU → 384 ch           │
      └──────────────────────────────────┬──────────────────────────────────┘
                                         ▼
      ┌─────────────────────────────────────────────────────────────────────┐
-     │  BEV ENCODER  8.410 M  (15.46 %)                                    │
+     │  BEV ENCODER  8.410 M  (15.13 %)                                    │
      │  5 × (3×3 conv 384→384 + BN + ReLU)     1.328 M each                │
      │  1 × (3×3 conv 384→512 + BN + ReLU)     1.770 M                     │
      │  ► ONE shared scene map  [1, 512, 200, 200], read by every head     │
      └─┬────────────────┬────────────────┬────────────────────┬────────────┘
        ▼                ▼                ▼                    ▼
-   DETECTION        OCCUPANCY        MAP                  TRAJECTORY  14.062 M  (25.85 %)
-   CenterPoint      0.082 M          1.182 M              avg-pool 5×5 → 40×40 = 1600 tokens
-   0.364 M          1×1 conv         crop 60 m × 30 m     + position [1600, 512]      0.819 M
-   1×1 512→128      512 → 16 × 10      = 118×58 cells     ego MLP 116→512→512         0.323 M
-   2 × 3×3 128      per BEV cell:    bilinear → 200×400   50 waypoint queries [50, 512]
-   heatmap 10 cls   16 height slices   cells of 0.15 m    3 × decoder layer      4.204 M each
-   regression 10:   × 10 classes     3×3 512→256            self-attn, cross-attn to the
-   dx dy z,                          1×1 256→6 classes      1600 tokens, FFN 2048, 8 heads
-   log w l h,                                             head 512→512→3              0.264 M
-   sin cos, vx vy                                         + ego_direct 116→150        0.018 M
-   3×3 max-pool,                                          + constant-velocity anchor
-   top-900 decode
-   inside the graph
+   DETECTION        OCCUPANCY        MAP                  TRAJECTORY  14.062 M  (25.30 %)
+   CenterPoint      1.260 M          1.182 M              avg-pool 5×5 → 40×40 = 1600 tokens
+   0.364 M          grid_sample to   crop 60 m × 30 m     + position [1600, 512]      0.819 M
+   1×1 512→128      Occ3D's grid,      = 118×58 cells     ego MLP 116→512→512         0.323 M
+   2 × 3×3 128      0.4 m, ±40 m     bilinear → 200×400   50 waypoint queries [50, 512]
+   heatmap 10 cls   3×3 512→256        cells of 0.15 m    3 × decoder layer      4.204 M each
+   regression 10:   1×1 → 16 slices  3×3 512→256            self-attn, cross-attn to the
+   dx dy z,           × 16 ch        1×1 256→6 classes      1600 tokens, FFN 2048, 8 heads
+   log w l h,       2 × 3×3×3 Conv3d                      head 512→512→3              0.264 M
+   sin cos, vx vy   1×1×1 → 10 cls                        + ego_direct 116→150        0.018 M
+   3×3 max-pool,    order (x, y, z),                      + constant-velocity anchor
+   top-900 decode   the teacher's;
+   inside the graph + 10 per-class
+                    logit offsets
        │                │                │                    │
        ▼                ▼                ▼                    ▼
    cls [1, 900, 10] occ [1, 200,     seg [1, 6,           trajectory [1, 50, 3]
@@ -121,8 +124,8 @@ tensor shapes traced through one forward pass at batch 1.
 Two choices make it fast. Geometry leaves the graph: the host turns calibration into 1.1 million ray-to-cell
 indices, so the whole image-to-BEV lift costs two 1×1 convolutions (0.115 M parameters, 0.2 %) and one
 scatter-add, with no camera math inside the network. And every output reads the same 512-channel BEV map:
-occupancy and map add 1.26 M parameters between them, and the trajectory decoder attends to that map pooled
-to 1,600 tokens. The parameters sit where the work is: 46 % in the image backbone, 26 % in the trajectory
+occupancy and map add 2.44 M parameters between them, and the trajectory decoder attends to that map pooled
+to 1,600 tokens. The parameters sit where the work is: 45 % in the image backbone, 25 % in the trajectory
 decoder, 15 % in the BEV encoder and 10 % in the temporal fusion.
 
 **One frame, step by step**
@@ -143,7 +146,7 @@ decoder, 15 % in the BEV encoder and 10 % in the temporal fusion.
 | head | how it works | output |
 |---|---|---|
 | 3-D detection | CenterPoint style: a heatmap per class on the 200×200 grid, plus sub-cell offset, height, size, heading and velocity at each cell; a 3×3 max-pool keeps local peaks and the top 900 are decoded inside the graph | up to 900 boxes, 10 nuScenes classes |
-| occupancy | a 1×1 conv turns each BEV cell into 16 height slices × 10 classes | 200×200×16 voxel grid |
+| occupancy | the shared map is resampled (a fixed `grid_sample`) onto Occ3D's own grid, 0.4 m cells over ±40 m; a 3×3 conv, a lift into 16 height slices and two 3-D convolutions classify every voxel; ten per-class logit offsets, fitted on held-out frames, set the operating point (v8). Up to release v6 this head was one 1×1 conv on the 0.512 m BEV grid, in (y, x) order: see "Occupancy, round 8" | 200×200×16 voxel grid in the teacher's format, (x, y, z) |
 | map | crops a 60 m × 30 m window centred on the car, resizes it to 200×400 cells of 0.15 m and classifies them | 6 classes: driveable, lane line, road edge, crosswalk, walkway, background |
 | trajectory | starts from a constant-velocity extrapolation, adds a linear correction from the 116-number ego state (16-point history, velocities, accelerations, nav command, speed), then 50 waypoint queries attend to a 40×40 pooled version of the scene map through 3 layers and add a learned residual | 50 points, 5 s at 10 Hz: x, y, heading |
 | state | this frame's un-fused BEV grid | fed back as next frame's memory |
@@ -155,7 +158,7 @@ teacher:
 |---|---|
 | detection | nuScenes annotated boxes (10 classes, ego-frame yaw, velocity) with Gaussian-focal heatmap + L1 box loss; the teacher-box term exists in the code but is unused under the CenterPoint objective |
 | depth (inside the lift-splat) | lidar points projected into each camera |
-| occupancy | Occ3D labels, camera-visible voxels only, plus a light pull toward "empty" outside them |
+| occupancy | Occ3D labels on their native grid: class-weighted on camera-visible voxels, plus a pull toward their label (98% "empty") on the voxels the cameras cannot see (weight 1 in v8, 3 in v7) |
 | map | the teacher's map predictions: the only head distilled from the teacher |
 | trajectory | the path the car actually drove over the next 5 s |
 
@@ -173,17 +176,24 @@ teacher on the same 150 held-out val scenes, which it never trained on.
 | detection F1, all 4,452 val frames | 61.04% | 61.35% (100.5%) |
 | official mAP / NDS | 0.215 / 0.222 | 0.375 / 0.444 |
 | trajectory ADE, 5 s | 1.63 m | 1.51 m |
-| occupancy mIoU vs Occ3D | 0.03 | 0.30 |
-| speed, one H200, real-frame loop | about 1 Hz | 27.3 Hz |
+| occupancy, visible-voxel mIoU on Occ3D's grid, val folds A / B | 26.6% / 25.7% | 34.9% / 34.3% (v8; v7 30.7% / 30.2%) |
+| occupancy, occupied voxels per frame the cameras cannot see | 17.3k | 17.4k (v8; v7 14.7k; v6 114k) |
+| speed, real-frame loop | about 1 Hz | 27.3 Hz on an H200 (v6); 13.2 Hz on an A100 (v8 and v7; v6 14.1 Hz there) |
 
 **Where it still trails.** Pedestrians (45.6 vs 50.1% recall), traffic cones (66.6 vs 68.5%) and buses
-(42.8 vs 46.7%), all inside 20 m, where the 0.5 m cell is coarse for small objects; and occupancy detail,
-where the single 1×1 head has no vertical context. Round 7 (end of this file) targets both.
+(42.8 vs 46.7%), all inside 20 m, where the 0.5 m cell is coarse for small objects. Occupancy fills less of
+the camera-visible region than the ground truth does (9.5k vs 20k occupied voxels per frame), as the teacher's
+does (9.6k).
 
-### 2.3 The deliverable (release v6)
+### 2.3 The deliverable (release v8)
 
-`outputs/student_release_v6/`: the r4_small averaged checkpoint (fp32) and its ONNX graph, 620 nodes,
-opset 20. Inputs: `image (1,6,3,640,1152)`, `bev_index`, `valid`, `ego (1,116)`,
+`outputs/student_release_v8/`: release v6 with its occupancy head rebuilt on the teacher's grid (run `r8_occ_a`,
+unobserved weight 1.0) and ten per-class logit offsets fitted on held-out frames (round 9). Every other weight is
+bit-identical to v6. fp32, ONNX graph of 650 nodes, opset 20, metadata `occ_grid=native`.
+
+Release v7 (`outputs/student_release_v7/`, run `r8_occ_d`, 637 nodes) is the same architecture, 4 points lower on
+visible mIoU. Release v6 (`outputs/student_release_v6/`, the r4_small averaged checkpoint, 620 nodes) has the same
+inputs and outputs, but its `occ` is on the student's 0.512 m grid in (y, x) order. Inputs: `image (1,6,3,640,1152)`, `bev_index`, `valid`, `ego (1,116)`,
 `prev_bev (1,3,384,200,200)`, `warp_grid (1,3,200,200,2)`. Outputs: `cls (1,900,10)`, `box (1,900,10)`,
 `occ (1,200,200,16,10)`, `seg (1,6,200,400)`, `trajectory (1,50,3)`, `bev_state (1,384,200,200)`; the
 state is fed back next frame and the host builds the warp grids from ego poses. The recurrent ONNX loop
@@ -229,6 +239,9 @@ the fifth, the map: the nuScenes map expansion that could have provided ground t
    changes: double weight on pedestrians, motorcycles, bicycles and traffic cones, the only classes where
    the student trailed the teacher, and a pull toward "empty" for occupancy the cameras cannot see.
 4. **Average** the fine-tune's last two checkpoints, weight by weight. That average is release v6.
+5. **Rebuild the occupancy head, 8,000 steps, about 2 h on 2 A100s.** Everything else frozen (BatchNorm
+   statistics included), a new head on Occ3D's native grid is trained from scratch on top of v6. Then ten
+   per-class logit offsets are fitted on held-out frames (`occ_bias_fit.py`, a minute). That is release v8.
 
 **Why "distillation" when most targets are ground truth.** The project started as pure copying: the
 student learned to reproduce the teacher's 900 detection outputs, with no ground truth at all
@@ -237,7 +250,8 @@ scores 61% F1 against nuScenes ground truth, and its 7-class taxonomy cannot exp
 motorcycles. Switching to ground truth let the student match and then slightly pass the teacher. The
 teacher's role became three things: the source of the map targets, the output format the student keeps
 (the teacher's 900-box list, occupancy grid and map grid, so the same decoding and rendering code serves
-both, with a 10-to-7 class mapping for detections), and the bar it is scored against, on the same held-out
+both, with a 10-to-7 class mapping for detections; for occupancy only from release v7 on, see round 8),
+and the bar it is scored against, on the same held-out
 scenes. So "distillation" here means replacing a
 5.7 B model with a 54 M one that meets its bar; only the map is distilled in the classic sense.
 
@@ -269,12 +283,13 @@ are scored on identical frames.
 | `.../frame.json`, `calib.npz` | camera order; intrinsics, camera-to-lidar and lidar-to-ego transforms | input geometry |
 | `.../gt_boxes10.npz` | ground-truth boxes in the ego frame, 10 classes, lidar point count, visibility, velocity | detection target |
 | `.../depth_1152x640.npz` | lidar points projected into each camera, as a 64-bin depth per 40×72 feature cell (−1 = no return) | depth target |
-| `.../occ3d.npz` | 200×200×16 occupancy classes on the student's grid, plus the camera-visible mask | occupancy target |
+| `.../occ3d.npz` | 200×200×16 occupancy classes resampled onto the student's 0.512 m grid in (y, x), plus the camera-visible mask | occupancy target up to v6 |
+| `.../occ3d_native.npz` | the same labels on Occ3D's own grid, 0.4 m, (x, y, z) -- the teacher's format -- plus the mask (`distill/occ3d_native_labels.py`) | occupancy target from v7 on, and every occupancy score |
 | `data/distill/teacher/<token>.npz` | teacher 900×7 logits and boxes, 200×200×16 occupancy, 200×400 map, its projection matrices | map target |
 | `data/distill/ego/<token>.npz` | 16×3 history, velocities, accelerations, nav command, speed, 50×3 future, `has_future` | ego input, trajectory target |
 | `data/distill/temporal_index.json` | previous keyframe and ego pose of every keyframe | history frames and their warps |
 | `data/distill/scene_split.json` | token lists: train and val keyframes with and without a teacher record, and `eval250`, the fixed 250-frame check | which frames train, which evaluate |
-| `data/distill/occ3d_freq.npy` | occupancy class counts over the camera-visible voxels | occupancy loss weights |
+| `data/distill/occ3d_freq.npy`, `occ3d_native_freq.npy` | occupancy class counts over the camera-visible voxels (native: train frames only) | occupancy loss weights |
 
 The frame cache is 8.0 GB, because the images are symlinks; the teacher cache is 1.2 GB.
 
@@ -284,7 +299,7 @@ The frame cache is 8.0 GB, because the images are symlinks; the teacher cache is
 |---|---|---|
 | detection | ground-truth boxes with at least one lidar point, drawn as a Gaussian heatmap per class (minimum radius 2 cells) plus a 10-number regression at each centre cell | Gaussian focal loss + L1. The final fine-tune doubles the heatmap loss for pedestrians, motorcycles, bicycles and cones. |
 | depth, inside the lift | the lidar depth bin of each camera feature cell | cross-entropy; cells without a lidar return are ignored |
-| occupancy | Occ3D labels, camera-visible voxels only | cross-entropy weighted by class frequency. The final fine-tune adds 0.2 × a pull toward "empty" outside the visible region. |
+| occupancy | Occ3D labels on their native grid | v8: cross-entropy weighted by class frequency (exponent 0.45) on camera-visible voxels + 1 × plain cross-entropy on the other voxels against their label, 98% "empty" (head-only training), then per-class logit offsets fitted on held-out frames (rounds 8-9; v7 used weight 3 and no offsets). Up to v6: visible voxels on the student's grid, the final fine-tune adding 0.2 × a pull toward "empty" outside them. |
 | map | the teacher's map, 6 classes on 200×400 cells | cross-entropy with gently boosted rare classes (frequency exponent 0.3); skipped on frames without a teacher record |
 | trajectory | the path actually driven over the next 5 s, 50 points at 10 Hz | L1, each dimension scaled by its spread; masked where the scene ends before 5 s |
 
@@ -351,6 +366,7 @@ from its last checkpoint, and earlier experiments are never overwritten.
 | `finetune` | the small-object and occupancy fine-tune from that snapshot (the `r4_small` recipe) |
 | `average` | averages the fine-tune's last-quarter checkpoints |
 | `evaluate` | 250-frame check and all 4,452 val frames for the final and averaged weights, picks the better, official nuScenes mAP/NDS |
+| `occupancy` | (rounds 8-9) on the chosen checkpoint, trains the native-grid occupancy head alone for 8k steps (everything else frozen), then fits per-class logit offsets on held-out frames; release and demo then use it |
 | `release` | checkpoint, ONNX and download chunks via `make_release.sh`, then the real-frame loop timing |
 | `demo` | the `nuscenes_session.gif` render with the released ONNX |
 
@@ -359,11 +375,11 @@ distill/scripts/run_distillation.sh                    # everything, resuming wh
 distill/scripts/run_distillation.sh --from select      # start at a stage
 distill/scripts/run_distillation.sh --only evaluate    # one stage
 distill/scripts/run_distillation.sh --dry-run          # print the commands only
-NAME=v8 GPUS=0,1,2,3 distill/scripts/run_distillation.sh   # new experiment name and GPUs
+NAME=p2 GPUS=0,1,2,3 distill/scripts/run_distillation.sh   # new experiment name and GPUs
 ```
 
-Settings are environment variables: `NAME` (default `v7`, giving `outputs/distill/exp/v7_base`, `v7_ft` and
-`outputs/student_release_v7`), `GPUS`, `BATCH` (auto: 4 per GPU with at least 100 GB of memory, else 2, which
+Settings are environment variables: `NAME` (default `p1`, giving `outputs/distill/exp/p1_base`, `p1_ft`, `p1_occ`
+and `outputs/student_release_p1`; `v1`-`v8` are the hand-made releases), `OCC_STEPS=8000`, `OCC_WOUT=1.0`, `OCC_GPUS`, `GPUS`, `BATCH` (auto: 4 per GPU with at least 100 GB of memory, else 2, which
 is untested at full length), `BASE_STEPS=75000`, `FT_STEPS=10000`, `FRAMES`, `TEACHER`, `NUSC_ROOT`, and
 `OFFICIAL=0` or `DEMO=0` to skip those stages. If `scene_split.json` is missing the script writes a new one,
 but its 250-frame list will differ from the original, so 250-frame numbers would not be comparable.
@@ -596,7 +612,8 @@ many objects the F1 noise is about 0.3 points, so the 95% gate is cleared with m
 at or above the teacher on cars, trucks, trailers, construction vehicles, bicycles and barriers (0.60 vs 0.53);
 it trails on pedestrians (0.46 vs 0.50), motorcycles (0.41 vs 0.45) and traffic cones (0.59 vs 0.68). Per range
 it trails only inside 20 m (0.85 vs 0.92 at 0-10 m, 0.78 vs 0.82 at 10-20 m) and is at parity or better beyond.
-Occupancy 27.7% vs 2.9% mIoU on the same frames; map agreement with the teacher 0.60.
+Occupancy 27.7% vs 2.9% mIoU on the same frames (the teacher's figure is a grid-mismatch artefact, see round 8);
+map agreement with the teacher 0.60.
 
 ## Per-class operating points (2026-09-27 07:40): examined, no gain
 
@@ -639,7 +656,7 @@ annealing steps with the heatmap loss doubled on pedestrians / motorcycles / bic
 | detection F1, 250-frame gate | 61.6% | 62.0% (99.6%) |
 | official nuScenes mAP / NDS (6,019 keyframes) | 0.375 / 0.444 | 0.215 / 0.222 |
 | trajectory ADE (5 s) | 1.51 m | 1.63 m |
-| occupancy mIoU vs Occ3D (camera-visible) | 0.30 | 0.03 |
+| occupancy mIoU vs Occ3D (camera-visible) | 0.30 | 0.03 (artefact; 0.27 on Occ3D's own grid, see round 8) |
 | real-frame deployment loop, idle H200, all outputs | 36.7 ms = 27.3 Hz | ~1 Hz |
 
 Runner-ups: r3_final 30/40/50k average 100.3% (no occupancy fix), r4_occfix 99.9% (occupancy fix, NDS 0.440),
@@ -709,31 +726,217 @@ held-out mini scenes are scene-0103, 0553, 0796 and 0916 (`--scene 1, 2, 5, 6`).
 
 Run it from the repo root, in three steps (each render takes about 6.5 min on one A100). `env_gpu.sh` puts
 torch's CUDA/cuDNN libraries on the loader path; without it onnxruntime silently falls back to the CPU.
+The commands below use release v8 (since 2026-10-02). With v6 they produced `assets/nuscenes_session_student.gif`,
+whose occupancy panel is transposed and blanketed: that is the bug round 8 fixed. Renderers now convert old-grid
+outputs, so re-rendering v6 would draw it correctly.
 
 ```bash
 source export_onnx/env_gpu.sh
 export PYTHONPATH=src:.:tools
 
 # 1. the PyTorch checkpoint: render the session, then export the same checkpoint to ONNX
-python distill/student_session.py --ckpt outputs/student_release_v6/student_r4_small_avg.pt --scene 0 --gpu 0 \
-  --out outputs/student_session_pytorch \
-  --gif outputs/student_session_pytorch/nuscenes_session_student_pytorch.gif \
-  --export-onnx outputs/student_export/student_r4_small_avg.onnx
+python distill/student_session.py --ckpt outputs/student_release_v8/student_r8_occ_a_cb.pt --scene 0 --gpu 0 \
+  --out outputs/student_session_pytorch_v8 \
+  --gif outputs/student_session_pytorch_v8/nuscenes_session_student_pytorch_v8.gif \
+  --export-onnx outputs/student_export/student_r8_occ_a_cb.onnx
 
 # 2. the exported ONNX (onnxruntime only): same inputs, same render, compared frame by frame with step 1
-python distill/student_session.py --onnx outputs/student_export/student_r4_small_avg.onnx --scene 0 --gpu 0 \
-  --out outputs/student_session --gif assets/nuscenes_session_student.gif \
-  --compare outputs/student_session_pytorch
+python distill/student_session.py --onnx outputs/student_export/student_r8_occ_a_cb.onnx --scene 0 --gpu 0 \
+  --out outputs/student_session_v8 --gif assets/nuscenes_session_student_v8.gif \
+  --compare outputs/student_session_pytorch_v8
 
 # 3. rebuild only a GIF from frames already rendered
-python distill/student_session.py --gif-only --out outputs/student_session --gif assets/nuscenes_session_student.gif
+python distill/student_session.py --gif-only --out outputs/student_session_v8 --gif assets/nuscenes_session_student_v8.gif
 ```
 
 The three steps are VS Code launch configurations `9a`, `9b` and `9c` (group `9-student` in
 `.vscode/launch.json`; their `env` block reproduces `env_gpu.sh`). Run 9a before 9b: 9b reads the ONNX file 9a
-exports and compares against 9a's render. Verified 2026-10-01 on scene-0061: over the 148 frames the ONNX
+exports and compares against 9a's render. Verified 2026-10-01 with v6 on scene-0061: over the 148 frames the ONNX
 trajectories match the PyTorch ones to 2.7 mm at worst (median 0), mean ADE 1.38 m in both; the number of boxes
 above 0.3 differs on 32 frames by at most 2, from scores sitting at the threshold, as expected from float-level
 differences between PyTorch and onnxruntime kernels. The re-exported graph has the same 620 nodes and 236 weight
 tensors as the released `student_release_v6/student_r4_small_avg.onnx`, equal up to float rounding (max
 difference 2.4e-7); the files differ byte-wise only because constant folding rounds slightly differently per run.
+
+## Occupancy, round 8 (2026-10-01): the student's occupancy was on the wrong grid
+
+**What the user saw.** In the session GIF the student's occupancy panel looked nothing like the teacher's: a
+blanket of "background" and "driveable" over the whole view, and no recognisable road
+(`outputs/debug/teacher.png` vs `outputs/debug/student.png`).
+
+**Why: two faults, one of them hiding the other.**
+
+1. *Wrong grid.* The teacher predicts occupancy on Occ3D's own grid: 200×200×16 cells of 0.4 m over ±40 m, indexed
+   (x, y, z). This was verified twice:
+   - 95.5% of the teacher's vehicle voxels fall inside ground-truth boxes when read as (x, y), against 6.8% as (y, x);
+   - against UniOcc's labels used as stored, the teacher scores 0.35 mIoU, against 0.05 transposed.
+
+   Every student up to v6 predicted on its own detection grid instead: 0.512 m cells over ±51.2 m, indexed (y, x).
+   The renderer draws (x, y, z) on the 0.4 m grid, so every student render was transposed and 28% too large.
+   The old Occ3D labels (`occ3d.npz`) had been resampled onto that student grid. So the student was scored fairly,
+   and the *teacher's* native output was scored against labels on the wrong grid. That produced the teacher's
+   "0.03 mIoU" throughout this file. Its real figure is 0.27.
+2. *A blanket over unobserved space.* Occ3D labels only the camera-visible voxels, about 14% of the grid. On
+   Occ3D's grid, v6 fills 111-117k voxels per frame outside that region; the teacher fills 17-18k. The r4 fix
+   (`--occ-outside-empty 0.2`) had cut the student's ~300k down to that 111-117k, not to the teacher's level.
+   Inside the visible region v6 was fine: 33.2% / 33.1% mIoU on the two val folds, against the teacher's 26.6% /
+   25.7%.
+
+**The fix.** v6's other weights are kept, and only a new occupancy head on the teacher's grid is trained (`--occ-grid
+native`, `distill/student.py`):
+- a fixed `grid_sample` maps every Occ3D cell centre into the 512-channel BEV map;
+- then a 3×3 conv 512→256, a 1×1 lift to 16 height slices × 16 channels, two 3×3×3 Conv3d + BN + ReLU blocks, and a
+  1×1×1 classifier. That is 1.26 M parameters.
+
+The output shape is unchanged, `(B, 200, 200, 16, 10)`, but it is now the teacher's format. The labels are
+`occ3d_native.npz`, UniOcc as stored, from `distill/occ3d_native_labels.py`; all 34,149 frames convert in 33 s.
+
+Training (`train_student.py --train-only occ_head`):
+- all other weights are frozen, and so are their BatchNorm statistics: the frozen BN layers are held in eval mode.
+  Round 7 had lost 0.3 F1 points because those statistics drifted.
+- 8k steps, one-cycle LR 1e-3, batch 4 × 2 A100s.
+- loss: class-weighted cross-entropy on visible voxels (exponent 0.45, train-frame frequencies), plus `w` × plain
+  cross-entropy on unobserved voxels against their label (98% free).
+
+Every non-occupancy tensor of the result is bit-identical to v6. All runs score detection F1 61.6%, map mIoU 58.8%
+and ADE 1.511 m on the 250-frame check, exactly as v6 does.
+
+**Runs** (250-frame check, held-out scenes, Occ3D's grid, visible-voxel mIoU over the classes present in the GT;
+teacher 27.0% with 18.0k occupied voxels per frame outside the visible region):
+
+| run | change | visible mIoU | occupied outside / frame | inside |
+|---|---|---|---|---|
+| v6 | (looked up on the native grid) | 33.5% | 116.5k | 20.4k |
+| `r8_occ_b` 2k | unobserved weight `w` 0.3 (stopped) | 37.0% | 93.5k | 19.6k |
+| `r8_occ_a` 8k | `w` 1.0 | 33.8% | 36.7k | 14.1k |
+| **`r8_occ_d` 8k** | **`w` 3.0** | **31.0%** | **15.0k** | 9.6k |
+| `r8_occ_f` 8k | `w` 3.0, 32-channel 3-D head (2k: 33.1% / 21.5k) | 30.7% | 15.1k | 9.7k |
+| `r8_occ_g` 4k | `w` 3.0, 48-channel 3-D head (2k: 33.6% / 19.5k; stopped at ~7k) | 31.1% | 15.5k | 9.7k |
+| `r8_occ_e` 4k | learned visibility channel gates unobserved voxels (`--occ-vis`), cut -1.0 | 24.0%\* | 13.2k\* | 10.1k\* |
+
+\* on 200 fold-A frames, where the teacher scores 24.5% / 16.9k.
+
+What the runs show:
+- **The unobserved-space weight trades the blanket against visible accuracy.** A single head cannot tell "unseen"
+  from "empty", so pressure on one region leaks into the other.
+- **Capacity doesn't move the end point.** The 32- and 48-channel heads were ahead at 2k (33.1%, 33.6%), but with
+  more unobserved fill than the teacher. By 4k they had converged to `r8_occ_d`'s point.
+- **A learned visibility gate is too blunt from frozen features.** At teacher-like fill it was about 5 points
+  worse.
+- **Visibility can't be computed from geometry either.** A viewshed and 3-D ray casting over the grid itself kept
+  only 32-42% of Occ3D's visible occupied voxels, even on ground truth. Occ3D's mask is not single-viewpoint
+  visibility of the accumulated occupancy.
+
+`r8_occ_d` sits below the teacher's unobserved fill and above its visible accuracy, and is release v7.
+Every run and snapshot is in `EXPERIMENTS.md` (the `occfix-*` records), with notes in `outputs/logs/occfix/RESULTS.md`.
+
+**Release v7** (`outputs/student_release_v7/`, `student_r8_occ_d.{pt,onnx}`, 637 nodes, metadata
+`occ_grid=native`). All 4,452 val frames:
+
+| | v7 | v6 | teacher |
+|---|---|---|---|
+| visible mIoU, fold A / B | 30.7% / 30.2% | 33.2% / 33.1% | 26.6% / 25.7% |
+| occupied voxels outside the visible region, A / B | 14.6k / 14.7k | 111k / 117k | 16.9k / 17.7k |
+| detection F1, A / B | 61.6% / 61.1% | 61.6% / 61.1% | |
+| real-frame loop, idle A100 | 73-76 ms, 13.2-13.6 Hz | 70.9 ms, 14.1 Hz | |
+
+The head adds about 2 ms of model run time; v6's 27.3 Hz was measured on an H200.
+
+Session GIF: `assets/nuscenes_session_student_v7.gif`, rendered from the release ONNX, with frames in
+`outputs/student_session_v7_onnx/`. Its PyTorch counterpart is `outputs/student_session_r8_occ_d/`. On frame 61 the
+student's occupancy now matches the teacher's (`outputs/debug/occ_gif_frame61_teacher_v6_r8d.png`).
+
+**Consumers updated.**
+- The ONNX export writes `occ_grid` into the graph's metadata.
+- `distill.geometry.occ_to_native` converts old-grid outputs, and `demo_onnx.py`, `student_session.py`,
+  `student_video.py` and `occ_compare.py` draw in the teacher's format. v1-v6 graphs, which have no metadata, are
+  treated as the old grid and now render correctly too.
+- `demo_onnx.py --occ-mask-dir` uses the native mask.
+- `diagnose.py` scores occupancy on the native grid, and runs the legacy student-grid metric only for old-grid
+  students.
+
+**Commands** (repo root, `PYTHONPATH=src:.:tools`, `source export_onnx/env_gpu.sh`):
+
+```bash
+python distill/occ3d_native_labels.py --workers 40          # occ3d_native.npz + occ3d_native_freq.npy, once
+mkdir -p outputs/distill/exp/r8_occ_d && python -c "import torch; ck = torch.load('outputs/student_release_v6/student_r4_small_avg.pt'); \
+  torch.save({'model': ck['model'], 'cfg': ck['cfg'], 'step': 0}, 'outputs/distill/exp/r8_occ_d/student.pt')"
+CUDA_VISIBLE_DEVICES=0,1 OMP_NUM_THREADS=1 torchrun --nproc_per_node=2 distill/train_student.py \
+  --det-objective center --det-head center --ref-points off --center-hidden 128 --center-blocks 3 --center-min-radius 2 \
+  --classes nuscenes10 --split scene-all --velocity --ema 0.999 --cam-flip --temporal --occ-gt occ3d \
+  --image-size 1152 640 --history 3 --batch 4 --workers 10 \
+  --occ-grid native --occ-3d-channels 16 --occ-ctx-channels 256 --train-only occ_head \
+  --occ-outside-weight 3.0 --occ-class-exp 0.45 --lr 1e-3 --steps 8000 --snap-every 2000 --out outputs/distill/exp/r8_occ_d
+python distill/diagnose.py --ckpt outputs/distill/exp/r8_occ_d/snap_8000.pt --tag occfix-r8_occ_d-8k --tokens scene --limit 250
+python distill/occ_compare.py --ckpt v6=outputs/student_release_v6/student_r4_small_avg.pt \
+  --ckpt v7=outputs/distill/exp/r8_occ_d/snap_8000.pt --out outputs/debug/occ_compare.png      # GT / teacher / students
+distill/scripts/make_release.sh outputs/distill/exp/r8_occ_d/snap_8000.pt r8_occ_d outputs/student_release_v7 0
+```
+
+`distill/scripts/run_distillation.sh` runs the same step as its `occupancy` stage.
+
+## Occupancy, round 9 (2026-10-01/02): set the operating point, then the head (release v8)
+
+**Reflection on v7.** Every round-8 variant hit the same wall. A head on the frozen BEV features can't tell "unseen"
+from "empty", so emptying unseen space (weight 3.0) cost about 2.5 points of visible mIoU and left the visible region
+under-filled. Round 9 attacked that wall from both sides: better evidence for the head, and a better way to choose
+its operating point.
+
+**What worked: choose the operating point after training.**
+1. *One offset on the "empty" logit* (`cfg.occ_empty_bias`, `occ_vis_sweep.py --mode empty-bias`). On 200 calibration
+   frames (val fold A, outside eval250), training with weight 1.0 (`r8_occ_a`) and then shifting "empty" by +0.75
+   reaches the teacher's unobserved fill at 31.9% mIoU. v7 (weight 3.0) is at 30.4% at a lower fill and 30.7%
+   interpolated to the same fill. Training hard against unseen space makes the head timid everywhere; a moderate
+   weight plus an offset doesn't.
+2. *Ten per-class offsets* (`cfg.occ_class_bias`, `occ_bias_fit.py`).
+   - The fit caches the raw logits of the calibration frames, then runs coordinate ascent on visible mIoU with the
+     unobserved fill held at or below the teacher's.
+   - On the calibration frames this goes from 31.9% to 34.4%. Four rare classes come down by 1-1.9 logits: their
+     inverse-frequency loss weights had made them over-predicted.
+   - The offsets are a constant add inside the graph: no retraining, and the same speed.
+
+**Release v8** = `r8_occ_a` + per-class offsets (`outputs/student_release_v8/`). Every non-occupancy tensor equals
+v6's.
+
+| | v8 | v7 | teacher |
+|---|---|---|---|
+| visible mIoU, 250-frame check (out-of-sample for the offsets) | **35.3%** | 31.0% | 27.0% |
+| visible mIoU, all val, fold A / B | **34.9% / 34.3%** | 30.7% / 30.2% | 26.6% / 25.7% |
+| occupied voxels outside the visible region, A / B | 17.3k / 17.6k | 14.6k / 14.7k | 16.9k / 17.7k |
+| detection F1, A / B | 61.6% / 61.1% | the same | |
+| real-frame loop, same idle A100 | 75.6-76.3 ms, 13.1-13.2 Hz | 76.5 ms, 13.1 Hz | |
+
+The GIF is `assets/nuscenes_session_student_v8.gif` (ONNX). Its PyTorch twin is in
+`outputs/student_session_pytorch_v8/`.
+
+**Also tried in round 9:**
+
+| idea | result |
+|---|---|
+| per-column ray map (`--occ-raymap`): the lift's depth mass passing through / stopping in / sampled in each BEV cell, the cameras' own visibility evidence, through the same scatter indices | real signal: among occupied voxels the visible share rises from 37% to 84% over its quintiles (AUC 0.71). `r9_ray_a` at 2k: +0.6 point over `r8_occ_a` at 2k with one offset |
+| per-voxel ray map (height bin packed into `bev_index`, decoded in-graph) | worse than per-column (AUC 0.59 vs 0.71): depth samples are 0.94 m apart along each ray, so most voxels get few or no samples; code removed |
+| joint fine-tune of everything but the backbone (`r10_joint`, all losses, LR 5e-5, 4k steps) | detection 61.8% (gate), map 59.0%: safe. Occupancy after per-class offsets 34.4% on calibration frames = `r8_occ_a`: no gain, so v8 keeps v6's weights |
+| learned visibility gate (`--occ-vis`) with the ray map | stopped early: the gate already lost to post-hoc offsets in round 8 |
+| ray map at full length (`r9_ray_a`, 8k) | calibrated 34.2% on the calibration frames vs 34.4% for `r8_occ_a`: the early edge disappears once both are calibrated |
+| joint fine-tune with the ray-map head (`r11_ray_joint`) | detection 61.6%, map 59.1%; calibrated 34.2%: no gain |
+| ensembles of heads on the same BEV (mean log-probability, offsets refitted) | +0.0 to +0.2 point (2-3 heads): the heads share the features and make the same mistakes |
+| Lovász-softmax on visible voxels (`--occ-lovasz 1`, `r12`, and with a 32-channel head `r13`) | raises the unconstrained score (35.6-35.7% raw at 8k) but fills more; at the teacher's fill it calibrates to only 32.1-32.8%. It rewards filling, which is what the fill limit forbids |
+| round 10: the teacher's occupancy as the target for unobserved voxels (`--occ-outside-target teacher`, `r14`) | failed: 25.9% calibrated at 2k, raw fill 52k; two classes the teacher's taxonomy never predicts collapsed to IoU 0. Stopped, with its weight-3 twin `r15` |
+| other snapshots of `r8_occ_a` (4k, 6k, the 6k/8k weight average) | 34.38 / 34.56 / 34.42% calibrated vs 34.40% at 8k: flat |
+| training on node 13 | its system file table stays ~99% full (other users); a minimal single-process run was blocked as interfering with others' work. Evaluation only |
+
+| unobserved weight around v8's 1.0 (`r16_w06` 0.6, `r17_w15` 1.5, 6k steps, offsets fitted) | 34.08% / 34.36% vs 34.40%: flat |
+
+So on v6's frozen features this head family has a calibrated ceiling of about 34.4% on the calibration frames
+(35.3% on the 250-frame check), and v8 sits on it. Everything that kept the target the same plateaued there, and
+the one different target tried (the teacher's) was worse. Notes, with timestamps, are in
+`outputs/logs/occfix/RESULTS.md`; every run is in `EXPERIMENTS.md` (`occfix-*` records).
+
+**Commands** (repo root, `PYTHONPATH=src:.:tools`):
+
+```bash
+# r8_occ_a: as r8_occ_d in round 8, but --occ-outside-weight 1.0; then:
+python distill/occ_bias_fit.py --ckpt outputs/distill/exp/r8_occ_a/snap_8000.pt --write outputs/distill/exp/r8_occ_a/snap_8000_classbias.pt
+python distill/diagnose.py --ckpt outputs/distill/exp/r8_occ_a/snap_8000_classbias.pt --tag occfix-r8_occ_a-8k-cb --tokens scene --limit 250
+distill/scripts/make_release.sh outputs/distill/exp/r8_occ_a/snap_8000_classbias.pt r8_occ_a_cb outputs/student_release_v8 0
+```
